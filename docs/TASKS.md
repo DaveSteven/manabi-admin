@@ -785,11 +785,29 @@ Next:
 
 ## B01：用户状态数据库迁移
 
-**状态：待验收**
+**状态：验收通过**
 
-### Review
+### Review 1
 
-尚未验收，无 Review 结论。
+- 验收日期：2026-09-21
+- 验收对象：`manabi_api` B01 用户状态数据库迁移及其模型、迁移测试。
+- 结论：**验收通过**。
+
+Validation:
+
+- `PYTHONPATH=. ./.venv/bin/pytest -q`：33 passed，3 skipped。
+- 独立 SQLite 数据库执行 `alembic upgrade head`：通过。
+- 从 head 执行 `alembic downgrade b72d06e914aa`：通过。
+- 迁移测试覆盖空数据库升级、既有用户迁移为 `active`、`updated_at` 回填 `created_at`、回滚移除字段。
+- 新 migration `c3f1a7e29b04_user_status_fields.py` 未修改既有 migration，字段定义与 B01 目标一致。
+
+范围说明：
+
+- 工作区中 N1–N5 题库扩展、分类、导入脚本及相关文档改动属于 B01 开始前已存在的未提交改动，不计入本次 B01 实现，也不作为 B01 的验收阻断项。
+
+Next:
+
+- B01 已通过验收；上述既有工作区改动仍需由其对应任务单独管理和验证。
 
 ### 目标
 
@@ -826,11 +844,27 @@ disabled_at
 
 ## B02：禁用用户认证保护
 
-**状态：待验收**
+**状态：验收通过**
 
-### Review
+### Review 1
 
-尚未验收，无 Review 结论。
+- 验收日期：2026-09-21
+- 验收对象：`manabi_api` B02 禁用用户认证保护。
+- 结论：**验收通过**。
+
+Validation:
+
+- `PYTHONPATH=. ./.venv/bin/pytest -q`：38 passed，3 skipped。
+- 禁用账号使用正确密码登录返回 403，错误体包含稳定代码 `ACCOUNT_DISABLED`，且不签发 `access_token`。
+- 禁用账号使用错误密码仍返回 401，不泄露账号状态。
+- 已签发 token 的账号被禁用后，`/me` 和受保护资源返回 401，错误代码为 `ACCOUNT_DISABLED`。
+- 账号重新启用后可恢复登录，正常账号登录行为保持不变。
+- `current_user` 统一执行状态检查，管理员依赖的受保护接口也继承该检查；B02 当前没有提供账号禁用写接口，因此不存在本任务内误禁用最后管理员的管理操作路径。
+- B01 migration 与既有测试结果未受影响。
+
+范围说明：
+
+- 最后一个超级管理员的禁用保护属于后续管理接口真正提供禁用操作时的约束；B02 仅实现认证层拦截，后续用户管理接口必须在执行禁用前补充该保护。
 
 ### 目标
 
