@@ -73,7 +73,7 @@ export function LoginPage() {
           <h1>让每一道真题，<br />都值得认真学习。</h1>
           <p>集中维护 JLPT N1–N5 真题、学习用户与内容质量，为 Manabi 提供可靠的学习体验。</p>
           <div className="story-cards">
-            <div><BookOutlined /><span><strong>103</strong><small>套真题内容</small></span></div>
+            <div><BookOutlined /><span><strong>N1–N5</strong><small>全等级真题</small></span></div>
             <div><SafetyCertificateOutlined /><span><strong>版本化</strong><small>安全发布流程</small></span></div>
           </div>
         </div>

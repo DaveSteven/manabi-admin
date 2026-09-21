@@ -651,11 +651,112 @@ Next:
 
 ## A06：阶段 1 集成验收
 
-**状态：待验收**
+**状态：验收通过**
 
-### Review
+### Review 1
 
-尚未验收，无 Review 结论。
+- Date: 2026-09-21
+- 验收对象：A06 阶段 1 集成验收，包括真实 API、管理员/普通用户登录、刷新恢复、退出、路由、README 和 `.env.example`。
+- Revision: 当前未提交工作区，A05 工作区内容及 `.env.example`、`README.md`。
+- Result: **待修改 / 联调阻断**。
+
+Validation:
+
+- `npm test`：PASS，11 个测试文件、65 项测试通过。
+- `npm run build`：PASS；主 JS 包约 934.75 kB，仍有非阻断体积警告。
+- `npm run lint`：PASS。
+- 真实后端 `GET http://127.0.0.1:8001/api/v1/health`：PASS，返回 200 和 `{"status":"ok","version":"1.0.0"}`。
+- 真实后端未认证 `GET /api/v1/me`：PASS，返回 401 `Authentication required`。
+- 使用后端测试文档中的 `Student_1 / a-valid-password` 和 `other_student / a-valid-password` 尝试登录：均返回 401 `Invalid username or password`；这些凭据不能作为成功联调证据。
+- `README.md`：已包含安装、API 服务、管理员账号准备、运行命令、环境变量、脚本、阶段 1 范围及“不展示模拟数据”说明。
+- `.env.example`：已包含 `VITE_API_BASE_URL=/api/v1` 和 `VITE_API_PROXY_TARGET=http://127.0.0.1:8001`，说明与代码默认值一致。
+
+Not Verified:
+
+- 未验证真实管理员成功登录、`user.is_admin` 放行、刷新后真实 `/me` 恢复、主动退出后的真实 token 撤销。
+- 未验证真实普通用户登录后被前端拒绝并调用真实 `/auth/logout` 撤销该 token。
+- 未完成使用真实 API 的浏览器端全流程：登录、所有受保护路由、刷新、退出和再次访问拦截。
+
+Findings:
+
+#### R1 / P1：缺少可用联调账号，A06 核心验收无法完成
+
+- 触发：对运行中的本地 API 提交登录请求时，没有项目提供的有效管理员和普通用户凭据；文档示例账号在当前数据库中登录返回 401。
+- 影响：无法证明管理员登录闭环、普通用户拒绝、真实会话恢复和真实退出撤销满足 A06；前端 mock 测试不能替代真实 API 验收。
+- Required Change：提供一次性可用的联调账号（管理员和普通用户）及安全的测试方式，或由后端在本地环境准备可撤销的测试账号。凭据不得写入仓库、README、命令历史或 Review 文档。
+- Revalidation：在真实 API 和真实浏览器中验证：管理员登录进入后台；普通用户登录显示无权限并发送带该 token 的 logout；刷新调用真实 `/me` 后保留会话；退出调用真实 `/auth/logout`，随后访问 `/me` 返回 401；退出后访问受保护路由回到登录页；所有路由可访问且不显示模拟业务数据。
+
+#### R2 / P2：A06 真实 API 浏览器流程尚未形成可重复验收记录
+
+- 位置：当前前端无真实账号端到端测试配置；README 只说明准备管理员账号，未提供可安全执行的联调检查脚本或验收记录。
+- 影响：阶段 1 的核心集成标准只能依赖单元测试和受控响应，不能作为真实 API 全流程完成证据。
+- Required Change：Worker 可补充不包含凭据的联调步骤或测试说明；实际凭据通过本地环境注入，不写入代码。完成后提交真实请求结果和未验证范围。
+- Revalidation：重新执行真实 API 浏览器流程，并保留状态码、页面结果、退出后 `/me` 401 证据。
+
+Next:
+
+- A06 保持待修改；无需修改已通过的前端功能，当前阻断主要是联调环境/凭据缺失。
+- 在获得有效测试账号或后端准备好本地测试账号后，继续 A06 复验；届时追加 Review 2，不覆盖本 Review。
+- 构建体积警告和 jsdom 的非阻断提示不影响本次结论。
+
+### Review 2
+
+- Date: 2026-09-21
+- 验收对象：A06 Worker 补充的真实 API 集成检查、README 联调说明和 `check:integration` 脚本。
+- Revision: 当前未提交工作区；新增 `src/integration/session.integration.test.ts`，更新 `package.json`、`README.md`、`.env.example`。
+- Result: **待修改 / 联调阻断仍在**。
+
+Validation:
+
+- `npm run check:integration`：命令可执行，但因未注入 `MANABI_ADMIN_USERNAME`、`MANABI_ADMIN_PASSWORD` 而跳过 1 个文件、3 项测试；没有产生真实登录成功证据。
+- `GET /api/v1/health`：真实 API 200。
+- 未认证 `GET /api/v1/me`：真实 API 401。
+- `npm test`：PASS，65 项测试；`npm run build`：PASS；`npm run lint`：PASS。
+- README 已补充安全的环境变量注入方式、集成检查命令和人工浏览器流程；凭据不写入仓库。
+
+Remaining:
+
+- Review 1 / R1 / P1：未解决。仍缺少有效管理员和普通用户凭据，无法验证真实登录、刷新恢复、退出后 token 401 及普通用户拒绝流程。
+- Review 1 / R2 / P2：部分解决。可重复的集成检查脚本和文档已补充，但本次仍因凭据缺失跳过，尚未形成真实 API 验收证据。
+
+Not Verified:
+
+- 管理员成功登录及 `is_admin` 放行。
+- 普通用户登录后权限拒绝与 token 撤销。
+- 真实 `/me` 会话恢复、退出后 `/me` 401、受保护路由再次访问拦截。
+
+Next:
+
+- A06 继续保持待修改。获得本地联调账号后，使用 `npm run check:integration` 注入凭据并执行真实浏览器流程，再追加 Review 3。
+
+### Review 3
+
+- Date: 2026-09-21
+- 验收对象：A06 使用本地一次性账号执行的真实 API 联调检查。
+- Revision: 当前未提交工作区；使用 `MANABI_PROVISION_LOCAL=1` 由脚本创建并在检查后删除一次性管理员和普通用户。
+- Result: **待修改 / 浏览器联调环境阻断**。
+
+Validation:
+
+- `MANABI_PROVISION_LOCAL=1 npm run check:integration`：API 检查全部通过：health 200；未认证 `/me` 401；管理员登录、`/me` 恢复、退出后 token 401；普通用户登录且 `is_admin=false`、退出后 token 401。一次性账号已自动清理。
+- 脚本结果仍报告 1 项失败：浏览器流程被跳过，因当前环境未安装 Playwright 模块及 Chrome 运行时（没有 `MANABI_BROWSER=1` 和 `MANABI_PLAYWRIGHT_PATH`）。
+- 本次未修改业务代码；先前 `npm test`、`npm run build` 和 `npm run lint` 仍为通过。
+
+Not Verified:
+
+- 真实浏览器中的管理员登录、刷新恢复、全部受保护路由与空状态、退出后跳转和普通用户前端拒绝。
+
+Next:
+
+- A06 保持待修改。在具备 Playwright 模块和 Chrome 运行时后，按 README 运行 `MANABI_PROVISION_LOCAL=1 MANABI_BROWSER=1 MANABI_PLAYWRIGHT_PATH=<playwright 模块路径> npm run check:integration`，完成浏览器端全流程复验。
+
+### Review 4
+
+- Date: 2026-09-21
+- 验收对象：A06 阶段 1 集成验收的人工最终确认。
+- Result: **验收通过**。
+- 依据：真实 API 检查已验证健康检查、未认证拦截、管理员登录与会话恢复、管理员退出后的 token 撤销、普通用户登录识别及退出后的 token 撤销；项目测试、构建和 lint 均通过。浏览器自动化因环境缺少 Playwright/Chrome 未执行，但经人工确认按当前范围验收通过。
+- 备注：Review 1-3 的历史验证记录和环境限制保留，不影响本次最终人工验收结论。
 
 ### 目标
 

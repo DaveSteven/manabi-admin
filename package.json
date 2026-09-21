@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "check:integration": "node scripts/check-integration.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
