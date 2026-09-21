@@ -42,6 +42,9 @@ button, input { font: inherit; }
 .admin-sider__brand { height: 92px; display: flex; align-items: center; padding: 0 24px; }
 .admin-sider .ant-menu { padding: 8px 14px; border-inline-end: none !important; }
 .admin-sider .ant-menu-item { margin-block: 7px; font-weight: 650; }
+.admin-drawer .ant-drawer-body { padding: 0; }
+.admin-drawer .ant-menu { padding: 8px 14px; border-inline-end: none !important; }
+.admin-drawer .ant-menu-item { margin-block: 7px; font-weight: 650; }
 .admin-sider__footer { position: absolute; bottom: 28px; width: 100%; color: #a0a7b5; text-align: center; font-size: 11px; letter-spacing: .4px; }
 .admin-header { position: sticky; z-index: 10; top: 0; display: flex; align-items: center; justify-content: space-between; height: 76px; padding: 0 34px; border-bottom: 1px solid $line; line-height: 1.5; }
 .collapse-button { font-size: 18px; }

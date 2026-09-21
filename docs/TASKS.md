@@ -354,11 +354,145 @@ Next:
 
 ## A04：后台布局和导航
 
-**状态：待验收**
+**状态：验收通过**
 
-### Review
+最新验收结论：Review 3 验收通过；历史 Review 保留，历史问题状态不代表当前结论。
 
-尚未验收，无 Review 结论。
+### Review 1
+
+- Date: 2026-09-21
+- 验收对象：A04 布局、导航、折叠、管理员菜单、404 及小屏幕适配。
+- Revision: `ef12a80faf324780b2922968ca76435af2ceda67` + 当前未提交工作区：`src/App.tsx`、`src/layout/AdminLayout.tsx`，以及未跟踪的 `src/App.test.tsx`、`src/pages/NotFoundPage.tsx`。
+- Result: **待修改**。
+
+Validation:
+
+- `npm test`：PASS，6 个测试文件、50 项测试通过。
+- `npm run build`：PASS；主 JS 包约 893.46 kB，仍有已有非阻断体积警告。
+- `npm run lint`：PASS。
+- `git diff --check`：PASS。
+- Chrome 无头浏览器 + Playwright，使用受控认证响应运行真实前端：六个菜单入口均可导航，逐个刷新后正确高亮；五个未实现模块显示明确占位说明；未知地址显示 404，返回工作台按钮可用；点击管理员菜单退出后清除 token 并跳回登录页；本流程无 pageerror。
+- 1440px、768px、390px、320px 四种宽度下，检查工作台、用户管理占位页、404 页面及侧栏两种状态。1440px 和 768px 均未检测到页面横向溢出；390px 和 320px 自动折叠状态下未检测到页面横向溢出，但手动展开后明显挤压内容并产生溢出。
+- 390px 工作台展开后：内容 `.page` 仅宽 108px，文档 scrollWidth 为 439px；320px 工作台展开后 `.page` 仅宽 38px，scrollWidth 为 439px。320px 的用户管理与 404 展开后 scrollWidth 为 368px。
+- 实际查看 390px 展开截图：主卡片标题、文字与按钮被裁剪，列表说明逐字换行，底部状态标签超出卡片。
+- 浏览器脚本：`/private/tmp/a04-review.cjs`；390px 工作台截图：`/private/tmp/a04-mobile-0.png`（折叠）、`/private/tmp/a04-mobile-1.png`（展开）。均为本机临时验收材料。
+
+Not Verified:
+
+- 未使用真实账号或真实后端验证退出后的服务端 token 失效，留待 A06 联调。
+- 未验证 Safari、Firefox、真实移动设备及完整键盘/读屏操作；未执行完整无障碍审计。
+
+Findings:
+
+#### R1 / P2：小屏幕手动展开导航导致内容严重挤压、裁剪和溢出
+
+- Location: `src/layout/AdminLayout.tsx:42-49`、`:57-62`；相关布局样式 `src/styles/main.scss`。
+- Trigger: 390px 或 320px 视口进入后台，点击“展开导航”，查看工作台或模块页面。
+- Actual: breakpoint 只负责自动折叠；手动展开仍使用占据文档流的 250px 侧栏，挤压剩余内容。实测尺寸与截图见 Validation。
+- Impact: 不满足 A04“小屏幕不会严重溢出”的验收条件；工作台内容和按钮被截断，320px 下模块和 404 页面也出现横向溢出。
+- Required Change: 为手机宽度定义独立导航行为，建议使用 Ant Design Drawer 或等效覆盖式导航，打开导航时不压缩正文；保持可关闭、菜单可访问，选中菜单后收起。桌面保留现有侧栏折叠行为。不允许仅设置 overflow hidden 掩盖被裁剪的内容。
+- Revalidation: 在真实浏览器检查至少 320px、390px、768px、1440px；覆盖导航打开/关闭、菜单跳转、工作台、模块占位页、404 和退出入口。正文与按钮可读可操作，窄屏无页面横向溢出；关闭导航后布局恢复正常。
+- Test Gap: 当前窄屏测试只 mock matchMedia 并断言 collapsed 类名；jsdom 不计算实际布局，不能证明无溢出。补充窄屏导航交互测试，并记录浏览器尺寸/视觉验证结果。
+
+#### R2 / P3：相似前缀的未知地址误高亮菜单（非阻断建议）
+
+- Location: `src/layout/AdminLayout.tsx:36`。
+- Trigger: 访问 `/users-unknown`。
+- Actual: 页面显示 404，但“用户管理”仍高亮；浏览器已复现。原因是仅用 startsWith 匹配 `/users`。
+- Suggested Change: 按完整路径或路径段边界匹配，避免相似前缀误命中；如采用路由元信息确定选中项，确保未知路由不误选。
+- Revalidation: `/users` 保持高亮，`/users-unknown` 显示 404 且不高亮用户管理；为匹配边界补充测试。
+
+Next:
+
+- A04 因 R1 暂不通过；由 Coding Worker 完成一个明确的窄屏导航修复任务，R2 为可选改进，不单独阻断验收。
+- Allowed Files: `src/layout/AdminLayout.tsx`、`src/styles/main.scss`、`src/App.test.tsx`；必要时新增直接相关的导航组件及测试。使用已有 Ant Design 能力，不新增依赖或修改认证、后端及业务 API。
+- 保留 A02/A03 已验收行为和用户明确要求的不显示 PageHeader 描述；不扩展为 A05 整体设计系统重构。
+- Worker 报告 Revision、Files Changed、Resolved、测试/构建/lint 实际结果和浏览器验证情况；完成后复验。
+
+### Review 2
+
+- Date: 2026-09-21
+- 验收对象：A04 窄屏抽屉导航、路径匹配修复及新增测试。
+- Revision: `ef12a80faf324780b2922968ca76435af2ceda67` + 当前未提交工作区：`src/App.tsx`、`src/layout/AdminLayout.tsx`、`src/styles/main.scss`、未跟踪的 `src/App.test.tsx` 和 `src/pages/NotFoundPage.tsx`。
+- Result: **待修改**。功能复验通过，剩余新增自动化测试不稳定。
+
+Validation:
+
+- 首次 `npm test`：FAIL，51 项通过、1 项失败（共 52 项）；失败位置 `src/App.test.tsx:151`，手机导航选择菜单后仍查询到 menuitem。
+- 单项复跑 `npm test -- src/App.test.tsx -t '手机宽度' --reporter=dot`：PASS，1 项通过、其余 7 项因名称筛选未运行。
+- 第二次全量 `npm test`：PASS，6 个文件、52 项通过。两次全量结果不一致，不能将首次失败隐藏为“全部稳定通过”。
+- `npm run build`：PASS；主 JS 包约 908.42 kB，仍有非阻断体积警告。
+- `npm run lint`：PASS；`git diff --check`：PASS。
+- 测试输出存在 jsdom 对带伪元素参数的 getComputedStyle 未实现提示；尚未证明该提示是本次失败的直接原因。
+- Chrome 无头浏览器 + Playwright，真实前端、受控认证响应：六个桌面菜单入口导航及刷新高亮正常，模块占位说明正常；`/does-not-exist`、`/users-unknown` 均显示 404 且没有错误选中项；返回工作台可用。
+- 320px、390px、768px、1440px，工作台、用户管理占位页和 404，导航打开/关闭两种状态均无页面横向溢出，检查的正文和按钮没有越出视口。手机正文宽度分别保持 288px、358px，抽屉打开不改变正文宽度；已查看 390px 打开与关闭截图。
+- 320px 和 390px 下逐个验证六个菜单：可跳转、选择后抽屉关闭、刷新后打开导航仍正确高亮、Escape 可关闭。关闭按钮和手机退出入口可用，退出后 token 清除并跳回登录页；浏览器流程无 pageerror。
+- 临时材料：`/private/tmp/a04-review.cjs`、`/private/tmp/a04-review2-mobile-0.png`、`/private/tmp/a04-review2-mobile-1.png`、`/private/tmp/a04-focused-test.log`、`/private/tmp/a04-review2-full-test.log`；上轮脚本保留为 `/private/tmp/a04-review1.cjs`。
+
+Resolved:
+
+- Review 1 / R1 / P2：功能 PASS。手机采用覆盖式 Drawer，打开时不再压缩正文；桌面保留侧栏折叠。
+- Review 1 / R2 / P3：PASS。路径段边界匹配避免 `/users-unknown` 误高亮。
+
+Findings:
+
+#### R2-1 / P2：新增手机导航测试存在间歇性失败
+
+- Location: `src/App.test.tsx:135-155`，失败断言位于 `:151`。
+- Trigger: 首次全量运行 `npm test`，菜单选择后等待 `queryByRole('menuitem')` 查询不到该项。
+- Actual: 首次失败，单项与第二次全量通过；真实浏览器中抽屉正常关闭。现阶段证据表明自动化验证不稳定，不能据此认定产品关闭逻辑失败。
+- Analysis: Drawer 默认关闭后可保留 DOM，通过动画和样式隐藏；测试依赖角色查询对隐藏状态的判断，需排查动画结束、样式注入、计时器及测试隔离。具体导致间歇失败的原因尚未确定。
+- Required Change: 修正测试同步或隔离方式，稳定验证“打开 → 选中菜单 → 路由变化 → 抽屉关闭 → 可再次打开”的行为。可以在测试中明确控制动画或等待可靠的关闭信号；不得删除/跳过该测试、吞掉失败、仅延长超时碰运气，或只为满足 DOM 不存在断言改变已经正常的产品行为。
+- Revalidation: 单项及完整测试套件均通过；修复后至少连续两次完整 `npm test` 验证本次间歇问题，并执行 build、lint。若调整实际 Drawer 行为，重新验证手机打开/关闭、跳转和无溢出。
+
+Not Verified:
+
+- 未实测真实后端 token 撤销，留待 A06；未验证其他浏览器、真实移动设备或完整无障碍行为。
+
+连续两轮未通过后的分析与下一步：
+
+- 原窄屏设计问题已解决，无需重新设计导航或扩大布局修改。此次阻断集中在新增测试与抽屉关闭状态的同步/隔离。
+- 下一任务收敛为“稳定 A04 手机抽屉交互测试”，优先交给 Coding Worker；允许修改 `src/App.test.tsx`，必要时调整直接相关测试配置或 `src/test/setup.ts`，但必须保留已有测试隔离与覆盖，不增加依赖。
+- 不重写认证、导航架构或样式，不恢复用户已删除的页面描述。Worker 报告根因、修复说明及实际验证后复验。
+
+### Review 3
+
+- Date: 2026-09-21
+- 验收对象：A04 手机抽屉交互测试稳定性修复，复验 Review 2 / R2-1。
+- Revision: `ef12a80faf324780b2922968ca76435af2ceda67` + 当前未提交 A04 工作区，包含未跟踪的 `src/App.test.tsx`、`src/pages/NotFoundPage.tsx`。本结论适用于本次检查的工作区，不代表 HEAD 已包含实现。
+- Result: **验收通过**。
+
+Validation:
+
+- 手机导航单项测试：PASS，使用 `npm test -- src/App.test.tsx -t '手机宽度' --reporter=dot`，1 项通过，其他 7 项因名称筛选未运行。
+- 第一轮完整 `npm test`：PASS，6 个文件、52 项测试通过，无跳过。
+- 第二轮完整 `npm test`：PASS，6 个文件、52 项测试通过，无跳过。两轮日志分别为 `/private/tmp/a04-review3-test1.log`、`/private/tmp/a04-review3-test2.log`。
+- `npm run build`：PASS；`npm run lint`：PASS；`git diff --check`：PASS。
+- 检查测试代码：保留无侧栏断言，以 Drawer 的 `ant-drawer-open` 状态同步验证“打开 → 点击用户管理 → 页面跳转 → 关闭 → 再次打开”；使用 within 限定抽屉内查询，没有删除测试、跳过全量用例、吞掉失败或增加超时。
+- 相比 Review 2，本次返工仅调整测试；产品路由、Drawer、404 及样式实现保持一致，产物 JS/CSS 文件名亦与上轮一致。本轮未重复浏览器验收，沿用 Review 2 已执行的 320px、390px、768px、1440px 布局、导航、刷新高亮、404 和退出验证结果。
+
+Resolved:
+
+- Review 2 / R2-1 / P2：PASS。测试不再依赖关闭后菜单项能否被角色查询找到，改为等待明确的 Drawer 打开状态，且补充再次打开验证；达到本次要求的连续两轮全量通过标准。
+- Review 1 / R1 / P2：维持 PASS。手机覆盖式导航不挤压正文，无横向溢出；桌面折叠正常。
+- Review 1 / R2 / P3：维持 PASS。相似前缀未知地址不再错误高亮菜单。
+
+Findings:
+
+- 本轮未发现阻断 A04 验收的遗留问题。
+- jsdom 仍输出伪元素 getComputedStyle 未实现提示；测试通过且上轮浏览器无 pageerror，本轮作为非阻断测试环境提示记录。
+- 构建主 JS 包约 908.42 kB，仍有已有非阻断体积警告。
+
+Not Verified:
+
+- 两次通过是本次稳定性复验的证据，不代表已进行长期压力或所有运行环境验证。
+- 本轮未重新运行浏览器；未验证 Safari、Firefox、真实移动设备或完整无障碍行为。
+- 真实后端 token 撤销仍需 A06 联调，不能以受控响应验证替代。
+
+Next:
+
+- A04 无需继续返工，可进入 A05；后续任务仍需独立验收。
+- 提交时须包含新增测试与 404 页面；后续实现变化需按影响范围重新验证。
 
 ### 目标
 
