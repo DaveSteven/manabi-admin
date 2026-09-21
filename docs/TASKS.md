@@ -236,11 +236,99 @@ Next:
 
 ## A03：会话恢复和自动退出
 
-**状态：待验收**
+**状态：验收通过**
 
-### Review
+最新验收结论：Review 2 验收通过；Review 1 保留为历史记录。
 
-尚未验收，无 Review 结论。
+### Review 1
+
+- Date: 2026-09-21
+- 验收对象：A03 会话恢复、自动退出、主动退出与登录前目标地址恢复。
+- Revision: `42bcd1018a649d538cd27370b074f8f43347f574` + 当前未提交工作区：`src/providers/AuthProvider.tsx`、`src/lib/api.test.ts`，以及未跟踪的 `src/components/ProtectedRoute.test.tsx`。
+- Result: **待修改**。
+
+Validation:
+
+- `npm test`：PASS，5 个测试文件、35 项测试通过。
+- `npm run build`：PASS；主 JS 包约 892.70 kB，仍有已有非阻断体积警告。
+- `npm run lint`：PASS。
+- `git diff --check`：PASS。
+- Chrome 无头浏览器 + Playwright，使用受控 API 响应运行真实前端及 Axios 拦截器：访问 `/users?level=N1#details`，登录后完整恢复 pathname、query、hash；刷新等待 `/me` 期间只显示加载界面，成功后恢复后台。
+- 浏览器同时触发三个当前 token 请求的 401，只派发一次退出事件，清除 token 并返回登录页。
+- 正常退出使用当前 token 请求 `/auth/logout`，清除本地会话；随后直接访问 `/users` 被拒绝并返回登录页。
+- 浏览器异常路径复现：退出返回 503 后没有错误提示、没有待撤销记录；会话失效后迟到的 `/me` 200 会重新显示受保护页面，此时本地 token 为 null。
+- 临时复验脚本：`/private/tmp/a03-review.cjs`，使用测试凭据与受控响应，不含真实账号凭据。
+
+Not Verified:
+
+- 未使用真实账号验证后端 token 撤销及撤销后 `/me` 返回 401；本轮不能证明真实服务端会话已失效，真实联调仍需在 A06 执行。
+- 未验证 Safari、Firefox、真实移动设备及跨标签页会话同步。
+
+Findings:
+
+#### R1 / P1：迟到的会话恢复响应重新放行已失效会话
+
+- Location: `src/providers/AuthProvider.tsx:35-57`，尤其 `:43-52`；`src/components/ProtectedRoute.tsx` 根据 user 是否存在放行。
+- Trigger: 刷新后台，延迟启动阶段 `/me` 的管理员成功响应；在其返回前，让另一个携带当前 token 的请求返回 401，确认已清除 token 并跳回登录页；随后释放之前 `/me` 的 200 响应。
+- Actual: 恢复 effect 的 `cancelled` 仅在 effect 清理时改变，会话清除并不触发该清理；迟到响应仍执行 `setUser(profile)`。浏览器实测重新进入 `/users`，但 `manabi_admin_token` 为 null。
+- Impact: 不满足失效后退出及受保护页面不可访问要求；这是前端会话状态回退，并不等于绕过服务端权限。
+- Required Change: 会话恢复结果必须绑定发起时的会话身份或代次；退出、401 清除或新登录后，旧恢复请求的成功、失败和 finally 均不得修改当前会话或加载状态。不能只保护成功分支，也不能通过移除 401 处理解决。
+- Revalidation: 增加可控制完成顺序的测试，覆盖恢复中清除会话后旧 `/me` 成功不恢复页面；新会话建立后旧 `/me` 成功或失败均不覆盖/清除新会话；正常恢复和 StrictMode 下的恢复仍可用。使用真实拦截器验证，而非仅 mock 最终用户状态。
+
+#### R2 / P2：主动退出失败被吞掉，缺少错误提示和清理重试
+
+- Location: `src/providers/AuthProvider.tsx:83-86`。
+- Trigger: 管理员点击退出登录，`POST /auth/logout` 返回 503 或发生网络错误。
+- Actual: 本地会话先清空，然后 `.catch(() => undefined)` 丢弃失败信息；浏览器实测登录页没有 Alert，待撤销存储为空，无法重试本次 token 的撤销。
+- Impact: 服务端管理员 token 可能仍有效，用户无法知道撤销失败或重试；不符合统一完成标准中的错误状态和异常处理要求。清除本地会话不代表服务端撤销成功。
+- Required Change: 保留立即退出本地后台的行为；失败时使用既有待撤销机制保留本次 token，显示中文提示并允许重试，不恢复为有效会话，不泄露 token。401 可视为该 token 已失效；没有 token 时不应发送可能被新会话 token 填充的匿名退出请求。
+- Revalidation: 覆盖正常退出、401、503、网络失败和失败后重试成功；失败期间后台不可访问；重试仍使用原 token；重试与新管理员登录并发时不清除新会话，保留 A02 的会话隔离回归测试。
+
+Next:
+
+- 继续 A03，交给 Coding Worker 按 R1、R2 完成一个明确的修复任务，暂不进入 A04。
+- Allowed Files: `src/providers/AuthProvider.tsx`、`src/providers/AuthProvider.test.tsx`、`src/components/ProtectedRoute.test.tsx`；如错误提示接入需要，可修改 `src/pages/LoginPage.tsx` 及其测试；必要时调整 `src/lib/api.ts`、`src/lib/api.test.ts`、`src/lib/storage.ts`、`src/services/auth.ts`。
+- 不修改后端、公共 API、依赖或无关布局；保留用户明确要求的不显示页面描述行为，不覆盖 A02 历史 Review。
+- Worker 逐项报告 Revision、Files Changed、Resolved、实际测试/构建/lint 结果及未验证范围，再提交复验。
+
+### Review 2
+
+- Date: 2026-09-21
+- 验收对象：A03 修复后的工作区，复验 Review 1 的 R1、R2 并回归 A03 正常流程。
+- Revision: `42bcd1018a649d538cd27370b074f8f43347f574` + 当前未提交工作区：`src/providers/AuthProvider.tsx`、`src/providers/AuthProvider.test.tsx`、`src/lib/api.test.ts` 及未跟踪的 `src/components/ProtectedRoute.test.tsx`。结论适用于本次检查的工作区，不代表 HEAD 本身已包含修复。
+- Result: **验收通过**。
+
+Validation:
+
+- `npm test`：PASS，5 个测试文件、44 项测试通过，包含 A02 回归测试。
+- `npm run build`：PASS。
+- `npm run lint`：PASS。
+- `git diff --check`：PASS。
+- 通过真实 Axios 拦截器与受控 adapter 的新增测试：会话清除后迟到的恢复成功响应不恢复 user；新登录后旧恢复成功或失败不覆盖/清除新会话；StrictMode 恢复正常；退出 401 视为已失效；503 和网络失败保留待撤销 token；重试使用原 token；无 token 时不发出退出请求。
+- Chrome 无头浏览器 + Playwright，受控 API 响应下验证真实前端：`/users?level=N1#details` 登录后完整恢复；刷新显示加载界面并恢复管理员；三个并发 401 仅派发一次退出事件并清理会话；正常退出请求使用原 token，退出后直接访问受保护页面被拒绝。
+- 浏览器复验 R1：延迟启动 `/me`，先由另一当前 token 请求的 401 清除会话，再释放 `/me` 的成功响应；页面保持 `/login`，后台不可见，本地 token 为 null。
+- 浏览器复验 R2：退出返回 503 后后台不可访问、登录页显示“会话撤销未完成”、保留待撤销记录；点击重试后确认请求携带原 token，成功时待撤销记录清除。
+- 浏览器脚本：`/private/tmp/a03-review.cjs`；上轮复现脚本保留为 `/private/tmp/a03-review1.cjs`，均为使用测试凭据和受控响应的本机临时材料。
+
+Resolved:
+
+- Review 1 / R1 / P1：PASS。恢复请求检查会话代次和 token，成功、失败及 finally 分支均拒绝过期结果；清除会话与新登录更新代次。
+- Review 1 / R2 / P2：PASS。保留立即清除本地会话的行为；撤销失败进入既有待撤销机制，提供中文提示和重试；没有 token 时不发请求。A02 会话隔离回归测试通过。
+
+Findings:
+
+- 本轮未发现阻断 A03 验收的遗留问题。
+- 主 JS 包约 892.85 kB，构建仍有已有非阻断体积警告。
+
+Not Verified:
+
+- 未使用真实账号和真实后端验证 token 撤销、撤销后 `/me` 返回 401；受控响应不证明服务端实际撤销，真实联调仍需 A06 完成。
+- 未验证 Safari、Firefox、真实移动设备或跨标签页同步；本次结论限定于 A03 定义的功能范围。
+
+Next:
+
+- A03 无需继续返工，可进入 A04；A04 和 A06 仍需独立验收。
+- 提交实现时应包含未跟踪的 `src/components/ProtectedRoute.test.tsx`；后续变更按影响范围重新验证。
 
 ### 目标
 

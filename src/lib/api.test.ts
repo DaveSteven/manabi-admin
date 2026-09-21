@@ -87,6 +87,21 @@ describe('api 401 会话隔离', () => {
     expect(dispatched).toBe(1);
   });
 
+  it('多个并发 401 只清除会话并派发一次退出事件', async () => {
+    api.defaults.adapter = ((config: InternalAxiosRequestConfig) =>
+      Promise.reject(httpError(config, 401))) as AxiosAdapter;
+    tokenStorage.set('admin-token');
+    let dispatched = 0;
+    const handler = () => { dispatched += 1; };
+    window.addEventListener('manabi:unauthorized', handler);
+
+    await Promise.allSettled([authService.me(), authService.me(), authService.me()]);
+
+    window.removeEventListener('manabi:unauthorized', handler);
+    expect(tokenStorage.get()).toBeNull();
+    expect(dispatched).toBe(1);
+  });
+
   it('网络错误不清除当前会话', async () => {
     api.defaults.adapter = ((config: InternalAxiosRequestConfig) =>
       Promise.reject(new AxiosError('Network Error', AxiosError.ERR_NETWORK, config))) as AxiosAdapter;

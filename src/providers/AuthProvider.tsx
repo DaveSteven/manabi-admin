@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { authService } from '../services/auth';
 import { AdminAccessRequiredError, apiErrorStatus } from '../lib/errors';
 import { pendingRevocationStorage, tokenStorage } from '../lib/storage';
@@ -19,8 +19,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AdminUser | null>(null);
   const [loading, setLoading] = useState(Boolean(tokenStorage.get()));
   const [pending, setPending] = useState<string[]>(() => pendingRevocationStorage.list());
+  const sessionVersionRef = useRef(0);
 
   const clearSession = useCallback(() => {
+    sessionVersionRef.current += 1;
     tokenStorage.clear();
     setUser(null);
     setLoading(false);
@@ -33,14 +35,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [clearSession]);
 
   useEffect(() => {
-    if (!tokenStorage.get()) return;
+    const token = tokenStorage.get();
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+    const version = sessionVersionRef.current;
+    const isStale = () => sessionVersionRef.current !== version || tokenStorage.get() !== token;
+    let cancelled = false;
     authService.me()
       .then((profile) => {
+        if (cancelled || isStale()) return;
         if (!profile.is_admin) throw new Error('not-admin');
         setUser(profile);
       })
-      .catch(clearSession)
-      .finally(() => setLoading(false));
+      .catch(() => {
+        if (!cancelled && !isStale()) clearSession();
+      })
+      .finally(() => {
+        if (!cancelled && !isStale()) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [clearSession]);
 
   const retryPendingRevocations = useCallback(async () => {
@@ -63,15 +80,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       throw new AdminAccessRequiredError(!revoked);
     }
+    sessionVersionRef.current += 1;
     tokenStorage.set(response.access_token);
     setUser(response.user);
+    setLoading(false);
   }, []);
 
   const logout = useCallback(async () => {
-    try {
-      await authService.logout();
-    } finally {
-      clearSession();
+    const token = tokenStorage.get() ?? undefined;
+    clearSession();
+    if (!token) return;
+    const revoked = await revokeToken(token);
+    if (!revoked) {
+      pendingRevocationStorage.add(token);
+      setPending(pendingRevocationStorage.list());
     }
   }, [clearSession]);
 
