@@ -5,5 +5,7 @@ export const authService = {
   login: async (input: LoginInput) =>
     (await api.post<LoginResponse>('/auth/login', input)).data,
   me: async () => (await api.get<AdminUser>('/me')).data,
-  logout: async () => api.post('/auth/logout'),
+  logout: async () => {
+    await api.post('/auth/logout');
+  },
 };

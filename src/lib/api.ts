@@ -23,12 +23,3 @@ api.interceptors.response.use(
     return Promise.reject(error);
   },
 );
-
-export function errorMessage(error: unknown): string {
-  if (axios.isAxiosError(error)) {
-    const detail = error.response?.data?.detail;
-    if (typeof detail === 'string') return detail;
-    if (!error.response) return '无法连接服务器，请检查 API 服务是否已启动。';
-  }
-  return '操作失败，请稍后重试。';
-}

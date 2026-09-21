@@ -1,33 +1,50 @@
 import { ArrowRightOutlined, BookOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
-import { Alert, Button, Form, Input } from 'antd';
-import { useState } from 'react';
+import { Alert, Button, Form, Input, Spin } from 'antd';
+import { useMemo, useRef, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Brand } from '../components/Brand';
-import { errorMessage } from '../lib/api';
+import { AdminAccessRequiredError, apiErrorMessage } from '../lib/errors';
 import { useAuth } from '../providers/AuthProvider';
 import type { LoginInput } from '../types/auth';
 
+function resolveDestination(state: unknown): string {
+  const from = (state as { from?: { pathname?: string; search?: string; hash?: string } } | null)?.from;
+  if (!from?.pathname || from.pathname === '/login') return '/';
+  return `${from.pathname}${from.search ?? ''}${from.hash ?? ''}`;
+}
+
 export function LoginPage() {
-  const { user, login } = useAuth();
+  const { user, loading, login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const submittingRef = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
+  const destination = useMemo(() => resolveDestination(location.state), [location.state]);
 
-  if (user) return <Navigate to="/" replace />;
+  if (loading) return <div className="app-loading"><Spin size="large" /></div>;
+  if (user) return <Navigate to={destination} replace />;
 
   const submit = async (values: LoginInput) => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
     setError(undefined);
     try {
-      await login(values);
-      const destination = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname || '/';
+      await login({ username: values.username.trim(), password: values.password });
       navigate(destination, { replace: true });
     } catch (reason) {
-      setError(reason instanceof Error && reason.message === 'ADMIN_REQUIRED'
-        ? '此账号没有管理权限。'
-        : errorMessage(reason));
+      if (reason instanceof AdminAccessRequiredError) {
+        setError('此账号没有管理权限。');
+      } else {
+        setError(apiErrorMessage(reason, {
+          401: '账号或密码错误。',
+          403: '此账号没有管理权限。',
+          422: '账号或密码格式不正确。',
+        }));
+      }
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
@@ -62,7 +79,7 @@ export function LoginPage() {
             <Form.Item label="密码" name="password" rules={[{ required: true, message: '请输入密码' }, { min: 8, message: '密码至少 8 位' }]}>
               <Input.Password autoComplete="current-password" placeholder="请输入密码" />
             </Form.Item>
-            <Button type="primary" htmlType="submit" loading={submitting} block>
+            <Button type="primary" htmlType="submit" loading={submitting} disabled={submitting} block>
               登录 <ArrowRightOutlined />
             </Button>
           </Form>

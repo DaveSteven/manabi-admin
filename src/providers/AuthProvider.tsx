@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { authService } from '../services/auth';
+import { AdminAccessRequiredError } from '../lib/errors';
 import { tokenStorage } from '../lib/storage';
 import type { AdminUser, LoginInput } from '../types/auth';
 
@@ -42,8 +43,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback(async (input: LoginInput) => {
     const response = await authService.login(input);
     if (!response.user.is_admin) {
-      await apiSafeLogout(response.access_token);
-      throw new Error('ADMIN_REQUIRED');
+      await revokeToken(response.access_token);
+      throw new AdminAccessRequiredError();
     }
     tokenStorage.set(response.access_token);
     setUser(response.user);
@@ -61,13 +62,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-async function apiSafeLogout(token: string) {
+async function revokeToken(token: string) {
+  const previous = tokenStorage.get();
   tokenStorage.set(token);
-  try {
-    await authService.logout();
-  } finally {
-    tokenStorage.clear();
-  }
+  await authService.logout().catch(() => undefined);
+  if (previous) tokenStorage.set(previous);
+  else tokenStorage.clear();
 }
 
 export function useAuth() {
