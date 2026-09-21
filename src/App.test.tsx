@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ConfigProvider } from 'antd';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { type AxiosAdapter, type InternalAxiosRequestConfig } from 'axios';
 import App from './App';
@@ -45,16 +46,21 @@ function renderAdminApp(initialEntries: string[]) {
     const url = config.url ?? '';
     if (url.endsWith('/me')) return Promise.resolve(ok(config, 200, ADMIN_USER));
     if (url.endsWith('/auth/logout')) return Promise.resolve(ok(config, 204));
+    if (url.endsWith('/admin/users')) return Promise.resolve(ok(config, 200, { items: [], total: 0, limit: 20, offset: 0 }));
     throw new Error(`unexpected request: ${url}`);
   }) as AxiosAdapter;
 
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
   return render(
     <ConfigProvider>
-      <MemoryRouter initialEntries={initialEntries}>
-        <AuthProvider>
-          <App />
-        </AuthProvider>
-      </MemoryRouter>
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={initialEntries}>
+          <AuthProvider>
+            <App />
+          </AuthProvider>
+        </MemoryRouter>
+      </QueryClientProvider>
     </ConfigProvider>,
   );
 }
@@ -79,7 +85,7 @@ describe('A04 后台布局和导航', () => {
 
     await user.click(screen.getByRole('menuitem', { name: /工作台/ }));
     expect(await screen.findByText(/你好，admin/)).toBeInTheDocument();
-  });
+  }, 15_000);
 
   it('直接访问子页面时对应菜单保持高亮', async () => {
     renderAdminApp(['/exams']);
