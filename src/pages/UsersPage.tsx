@@ -1,15 +1,15 @@
-import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Button, Input, Select, Space, Table, type TableProps } from 'antd';
+import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Alert, Button, Form, Input, Modal, Select, Space, Table, type TableProps } from 'antd';
 import type { SorterResult, TablePaginationConfig } from 'antd/es/table/interface';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { StateBlock } from '../components/feedback/StateBlock';
 import { StatusTag } from '../components/common/StatusTag';
 import { apiErrorMessage } from '../lib/errors';
 import { usersService } from '../services/users';
-import type { AdminUserListItem } from '../types/users';
+import type { AdminUserCreateInput, AdminUserListItem } from '../types/users';
 
 const DEFAULT_LIMIT = 20;
 const DEFAULT_SORT = 'created_at';
@@ -66,6 +66,13 @@ export function UsersPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const params = useMemo(() => parseParams(searchParams), [searchParams]);
   const [keyword, setKeyword] = useState(params.keyword ?? '');
+  const queryClient = useQueryClient();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string>();
+  const [createdUsername, setCreatedUsername] = useState<string>();
+  const [form] = Form.useForm<AdminUserCreateInput>();
+  const submittingRef = useRef(false);
 
   useEffect(() => {
     setKeyword(params.keyword ?? '');
@@ -93,6 +100,51 @@ export function UsersPage() {
   const clearFilters = () => {
     setKeyword('');
     updateParams({ keyword: undefined, level: undefined, status: undefined, is_admin: undefined, offset: 0, sort: undefined, order: undefined });
+  };
+
+  const openCreate = () => {
+    setCreateError(undefined);
+    setCreatedUsername(undefined);
+    setCreateOpen(true);
+  };
+
+  const closeCreate = () => {
+    if (creating) return;
+    setCreateOpen(false);
+    setCreateError(undefined);
+    form.resetFields();
+  };
+
+  const handleCreate = async () => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    try {
+      let values: AdminUserCreateInput;
+      try {
+        values = await form.validateFields();
+      } catch {
+        return;
+      }
+      setCreating(true);
+      setCreateError(undefined);
+      try {
+        const created = await usersService.create({
+          username: values.username.trim(),
+          display_name: values.display_name?.trim() || undefined,
+          password: values.password,
+        });
+        setCreateOpen(false);
+        form.resetFields();
+        setCreatedUsername(created.username ?? values.username.trim().toLowerCase());
+        await queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      } catch (error) {
+        setCreateError(apiErrorMessage(error, { status: { 409: '该用户名已存在，请更换。' } }));
+      } finally {
+        setCreating(false);
+      }
+    } finally {
+      submittingRef.current = false;
+    }
   };
 
   const sortOrderFor = (field: string) => (
@@ -143,8 +195,23 @@ export function UsersPage() {
       <PageHeader
         eyebrow="PEOPLE"
         title="用户管理"
-        action={<Button icon={<ReloadOutlined />} loading={query.isFetching} onClick={() => void query.refetch()}>刷新</Button>}
+        action={(
+          <Space>
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建用户</Button>
+            <Button icon={<ReloadOutlined />} loading={query.isFetching} onClick={() => void query.refetch()}>刷新</Button>
+          </Space>
+        )}
       />
+      {createdUsername && (
+        <Alert
+          className="users-page__notice"
+          type="success"
+          showIcon
+          closable
+          message={`用户「${createdUsername}」已创建`}
+          onClose={() => setCreatedUsername(undefined)}
+        />
+      )}
       <div className="users-filter-card">
         <Space wrap size={12}>
           <Input
@@ -197,6 +264,48 @@ export function UsersPage() {
           scroll={{ x: 900 }}
         />
       )}
+
+      <Modal
+        title="新建用户"
+        open={createOpen}
+        okText="创建"
+        cancelText="取消"
+        confirmLoading={creating}
+        maskClosable={!creating}
+        onOk={() => void handleCreate()}
+        onCancel={closeCreate}
+      >
+        {createError && <Alert className="users-page__notice" type="error" showIcon message={createError} />}
+        <Form form={form} layout="vertical" requiredMark={false} className="users-create-form">
+          <Form.Item
+            label="用户名"
+            name="username"
+            rules={[
+              { required: true, message: '请输入用户名' },
+              { min: 3, message: '用户名至少 3 位' },
+              { max: 64, message: '用户名最多 64 位' },
+              { pattern: /^[a-zA-Z0-9_.-]+$/, message: '用户名只能包含字母、数字、下划线、点和连字符' },
+            ]}
+          >
+            <Input autoComplete="off" placeholder="3–64 位字母、数字、_ . -" />
+          </Form.Item>
+          <Form.Item label="显示名称" name="display_name" rules={[{ max: 64, message: '显示名称最多 64 个字符' }]}>
+            <Input autoComplete="off" placeholder="可选" />
+          </Form.Item>
+          <p className="users-create-form__hint">新用户默认 JLPT N5，可在用户详情中调整等级。</p>
+          <Form.Item
+            label="初始密码"
+            name="password"
+            rules={[
+              { required: true, message: '请输入初始密码' },
+              { min: 8, message: '密码至少 8 位' },
+              { max: 128, message: '密码最多 128 位' },
+            ]}
+          >
+            <Input.Password autoComplete="new-password" placeholder="至少 8 位" />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ConfigProvider } from 'antd';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -17,6 +17,14 @@ afterEach(() => {
 
 function ok(config: InternalAxiosRequestConfig, data: unknown) {
   return { data, status: 200, statusText: 'OK', headers: {}, config };
+}
+
+function created(config: InternalAxiosRequestConfig, data: unknown) {
+  return { data, status: 201, statusText: 'Created', headers: {}, config };
+}
+
+function isPost(config: InternalAxiosRequestConfig) {
+  return (config.method ?? 'get').toLowerCase() === 'post';
 }
 
 function item(overrides: Partial<AdminUserListItem> = {}): AdminUserListItem {
@@ -146,4 +154,123 @@ describe('B03 用户列表', () => {
 
     expect(await screen.findByText('alice')).toBeInTheDocument();
   });
+
+  it('新建用户成功后显示提示并刷新列表', async () => {
+    const posts: Array<Record<string, unknown>> = [];
+    let createdOnce = false;
+    api.defaults.adapter = ((config: InternalAxiosRequestConfig) => {
+      if (isPost(config)) {
+        createdOnce = true;
+        posts.push(JSON.parse(String(config.data)) as Record<string, unknown>);
+        return Promise.resolve(created(config, { id: 'u9', username: 'newlearner', level: 'N3', is_guest: false, is_admin: false }));
+      }
+      const listed = createdOnce ? item({ id: 'u9', username: 'newlearner', display_name: '新同学' }) : item();
+      return Promise.resolve(ok(config, page({ items: [listed], total: 1 })));
+    }) as AxiosAdapter;
+
+    renderPage();
+    await screen.findByText('alice');
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /新建用户/ }));
+    const dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByLabelText('用户名'), 'NewLearner');
+    await user.type(within(dialog).getByLabelText('显示名称'), '新同学');
+    await user.type(within(dialog).getByLabelText('初始密码'), 'a-valid-password');
+    await user.click(within(dialog).getByRole('button', { name: /创\s*建/ }));
+
+    expect(await screen.findByText('用户「newlearner」已创建')).toBeInTheDocument();
+    expect(await screen.findByText('newlearner')).toBeInTheDocument();
+    expect(posts[0]).toMatchObject({ username: 'NewLearner', display_name: '新同学', password: 'a-valid-password' });
+    expect(posts[0]).not.toHaveProperty('level');
+  }, 15_000);
+
+  it('用户名重复时显示明确提示且保持弹窗', async () => {
+    api.defaults.adapter = ((config: InternalAxiosRequestConfig) => {
+      if (isPost(config)) {
+        return Promise.reject({ isAxiosError: true, config, response: { status: 409, data: { detail: 'Username already exists' } } });
+      }
+      return Promise.resolve(ok(config, page({ items: [item()], total: 1 })));
+    }) as AxiosAdapter;
+
+    renderPage();
+    await screen.findByText('alice');
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /新建用户/ }));
+    const dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByLabelText('用户名'), 'duplicate');
+    await user.type(within(dialog).getByLabelText('初始密码'), 'a-valid-password');
+    await user.click(within(dialog).getByRole('button', { name: /创\s*建/ }));
+
+    expect(await screen.findByText('该用户名已存在，请更换。')).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  }, 15_000);
+
+  it('新建用户表单校验用户名和密码规则', async () => {
+    api.defaults.adapter = ((config: InternalAxiosRequestConfig) => Promise.resolve(ok(config, page({ items: [item()], total: 1 })))) as AxiosAdapter;
+
+    renderPage();
+    await screen.findByText('alice');
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /新建用户/ }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: /创\s*建/ }));
+
+    expect(await screen.findByText('请输入用户名')).toBeInTheDocument();
+    expect(await screen.findByText('请输入初始密码')).toBeInTheDocument();
+
+    await user.type(within(dialog).getByLabelText('用户名'), 'okuser');
+    await user.type(within(dialog).getByLabelText('初始密码'), 'short');
+    await user.click(within(dialog).getByRole('button', { name: /创\s*建/ }));
+
+    expect(await screen.findByText('密码至少 8 位')).toBeInTheDocument();
+  }, 15_000);
+
+  it('显示名称留空时不提交该字段，也不提交 JLPT 等级', async () => {
+    const posts: Array<Record<string, unknown>> = [];
+    api.defaults.adapter = ((config: InternalAxiosRequestConfig) => {
+      if (isPost(config)) {
+        posts.push(JSON.parse(String(config.data)) as Record<string, unknown>);
+        return Promise.resolve(created(config, { id: 'u9', username: 'solo', level: 'N5', is_guest: false, is_admin: false }));
+      }
+      return Promise.resolve(ok(config, page({ items: [item()], total: 1 })));
+    }) as AxiosAdapter;
+
+    renderPage();
+    await screen.findByText('alice');
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /新建用户/ }));
+    const dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByLabelText('用户名'), 'solo');
+    await user.type(within(dialog).getByLabelText('初始密码'), 'a-valid-password');
+    await user.click(within(dialog).getByRole('button', { name: /创\s*建/ }));
+
+    expect(await screen.findByText('用户「solo」已创建')).toBeInTheDocument();
+    expect(Object.keys(posts[0]).sort()).toEqual(['password', 'username']);
+  }, 15_000);
+
+  it('服务端错误时显示中文提示并保留弹窗', async () => {
+    api.defaults.adapter = ((config: InternalAxiosRequestConfig) => {
+      if (isPost(config)) {
+        return Promise.reject({ isAxiosError: true, config, response: { status: 500, data: { detail: 'Internal Server Error' } } });
+      }
+      return Promise.resolve(ok(config, page({ items: [item()], total: 1 })));
+    }) as AxiosAdapter;
+
+    renderPage();
+    await screen.findByText('alice');
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /新建用户/ }));
+    const dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByLabelText('用户名'), 'broken');
+    await user.type(within(dialog).getByLabelText('初始密码'), 'a-valid-password');
+    await user.click(within(dialog).getByRole('button', { name: /创\s*建/ }));
+
+    expect(await screen.findByText('服务器暂时不可用，请稍后重试。')).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  }, 15_000);
 });

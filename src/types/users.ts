@@ -16,6 +16,12 @@ export interface AdminUsersResponse {
   offset: number;
 }
 
+export interface AdminUserCreateInput {
+  username: string;
+  display_name?: string;
+  password: string;
+}
+
 export interface AdminUserListParams {
   keyword?: string;
   level?: string;
