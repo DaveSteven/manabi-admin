@@ -14,11 +14,12 @@ function resolveDestination(state: unknown): string {
 }
 
 export function LoginPage() {
-  const { user, loading, login } = useAuth();
+  const { user, loading, login, pendingRevocations, retryPendingRevocations } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const submittingRef = useRef(false);
   const [submitting, setSubmitting] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const [error, setError] = useState<string>();
   const destination = useMemo(() => resolveDestination(location.state), [location.state]);
 
@@ -35,17 +36,30 @@ export function LoginPage() {
       navigate(destination, { replace: true });
     } catch (reason) {
       if (reason instanceof AdminAccessRequiredError) {
-        setError('此账号没有管理权限。');
+        setError(reason.revokeFailed
+          ? '此账号没有管理权限，且会话撤销失败。'
+          : '此账号没有管理权限。');
       } else {
         setError(apiErrorMessage(reason, {
-          401: '账号或密码错误。',
-          403: '此账号没有管理权限。',
-          422: '账号或密码格式不正确。',
+          status: {
+            401: '账号或密码错误。',
+            403: '此账号没有管理权限。',
+            422: '账号或密码格式不正确。',
+          },
         }));
       }
     } finally {
       submittingRef.current = false;
       setSubmitting(false);
+    }
+  };
+
+  const retryRevocation = async () => {
+    setRetrying(true);
+    try {
+      await retryPendingRevocations();
+    } finally {
+      setRetrying(false);
     }
   };
 
@@ -72,6 +86,15 @@ export function LoginPage() {
             <p>请使用已授权的管理员账号继续。</p>
           </div>
           {error && <Alert type="error" showIcon message={error} />}
+          {pendingRevocations > 0 && (
+            <Alert
+              type="warning"
+              showIcon
+              message="会话撤销未完成"
+              description="为避免该会话继续有效，请重试撤销。"
+              action={<Button size="small" type="primary" loading={retrying} onClick={() => void retryRevocation()}>重试</Button>}
+            />
+          )}
           <Form<LoginInput> layout="vertical" requiredMark={false} onFinish={submit} size="large">
             <Form.Item label="管理员账号" name="username" rules={[{ required: true, message: '请输入管理员账号' }]}>
               <Input autoComplete="username" placeholder="请输入账号" />

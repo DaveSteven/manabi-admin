@@ -54,7 +54,7 @@ export function AdminLayout() {
             >
               <button className="profile-button">
                 <Avatar size={36}>{user?.username?.slice(0, 1).toUpperCase()}</Avatar>
-                <span><strong>{user?.username}</strong><small>{user?.level} · 管理员</small></span>
+                <span className="profile-button__text"><strong>{user?.username}</strong></span>
               </button>
             </Dropdown>
           </div>

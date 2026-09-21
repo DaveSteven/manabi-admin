@@ -1,14 +1,16 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { authService } from '../services/auth';
-import { AdminAccessRequiredError } from '../lib/errors';
-import { tokenStorage } from '../lib/storage';
+import { AdminAccessRequiredError, apiErrorStatus } from '../lib/errors';
+import { pendingRevocationStorage, tokenStorage } from '../lib/storage';
 import type { AdminUser, LoginInput } from '../types/auth';
 
 interface AuthContextValue {
   user: AdminUser | null;
   loading: boolean;
+  pendingRevocations: number;
   login: (input: LoginInput) => Promise<void>;
   logout: () => Promise<void>;
+  retryPendingRevocations: () => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -16,6 +18,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AdminUser | null>(null);
   const [loading, setLoading] = useState(Boolean(tokenStorage.get()));
+  const [pending, setPending] = useState<string[]>(() => pendingRevocationStorage.list());
 
   const clearSession = useCallback(() => {
     tokenStorage.clear();
@@ -40,11 +43,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .finally(() => setLoading(false));
   }, [clearSession]);
 
+  const retryPendingRevocations = useCallback(async () => {
+    let allRevoked = true;
+    for (const token of pendingRevocationStorage.list()) {
+      if (await revokeToken(token)) pendingRevocationStorage.remove(token);
+      else allRevoked = false;
+    }
+    setPending(pendingRevocationStorage.list());
+    return allRevoked;
+  }, []);
+
   const login = useCallback(async (input: LoginInput) => {
     const response = await authService.login(input);
     if (!response.user.is_admin) {
-      await revokeToken(response.access_token);
-      throw new AdminAccessRequiredError();
+      const revoked = await revokeToken(response.access_token);
+      if (!revoked) {
+        pendingRevocationStorage.add(response.access_token);
+        setPending(pendingRevocationStorage.list());
+      }
+      throw new AdminAccessRequiredError(!revoked);
     }
     tokenStorage.set(response.access_token);
     setUser(response.user);
@@ -58,16 +75,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [clearSession]);
 
-  const value = useMemo(() => ({ user, loading, login, logout }), [user, loading, login, logout]);
+  const value = useMemo(() => ({
+    user,
+    loading,
+    pendingRevocations: pending.length,
+    login,
+    logout,
+    retryPendingRevocations,
+  }), [user, loading, pending, login, logout, retryPendingRevocations]);
+
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-async function revokeToken(token: string) {
-  const previous = tokenStorage.get();
-  tokenStorage.set(token);
-  await authService.logout().catch(() => undefined);
-  if (previous) tokenStorage.set(previous);
-  else tokenStorage.clear();
+async function revokeToken(token: string): Promise<boolean> {
+  try {
+    await authService.logout(token);
+    return true;
+  } catch (error) {
+    return apiErrorStatus(error) === 401;
+  }
 }
 
 export function useAuth() {

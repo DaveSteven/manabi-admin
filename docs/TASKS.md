@@ -1,46 +1,20 @@
 # Manabi Admin 垂直任务清单
 
-## 一、统一执行规则
-
-每次只给小模型一个任务。
-
-每个任务都必须：
-
-1. 先阅读相关现有代码。
-2. 只修改任务范围内的文件。
-3. 保留现有 iOS API 行为。
-4. 不覆盖用户已有修改。
-5. 数据库变更使用新的 Alembic migration。
-6. 后端接口必须验证管理员权限。
-7. 不使用虚假数据模拟已完成业务。
-8. 补充与任务对应的测试。
-9. 运行相关测试、前端构建和 lint。
-10. 最后报告修改文件、验证结果和遗留问题。
-
-统一完成标准：
-
-```text
-后端：
-- 相关 pytest 通过
-- 数据库 migration 可执行
-- OpenAPI schema 正常生成
-
-前端：
-- npm run build 通过
-- npm run lint 通过
-- 加载、空数据、错误状态完整
-
-安全：
-- 普通用户不能调用管理接口
-- 不返回密码、token 或磁盘绝对路径
-- 高风险操作有确认和操作日志
-```
-
----
-
 # 里程碑 A：阶段 1 基础框架收尾
 
 ## A01：检查并修复当前前端工程
+
+**状态：验收通过**
+
+### Review
+
+- 验收日期：2026-09-21
+- 验收提交：`8eb1753`
+- 结论：符合 A01 验收标准，可继续 A02。
+- 实际验证：`npm install`、`npm run build`、`npm run lint` 均通过；TypeScript 和 Sass 编译正常；开发服务 `/login` 返回 200；代理及直连 `/api/v1/me` 均返回未认证 401；环境变量示例与代码默认值一致。
+- 非阻断建议：`eslint.config.js:16` 为 `useAuth` 添加白名单仅消除 lint 警告，未解决组件与 Hook 混合导出的 Fast Refresh 边界问题，建议后续拆分文件。
+- 非阻断警告：Node 22.12.0 不满足 `eslint-visitor-keys@5.0.1` 的版本要求，安装出现 `EBADENGINE`；本次构建和 lint 通过。主 JS 包约 890 kB，触发体积警告，可后续按路由拆包。
+- 验收边界：未验收真实账号登录、会话恢复和退出业务，分别在后续任务中验证。
 
 ### 目标
 
@@ -70,6 +44,164 @@ npm run lint
 ---
 
 ## A02：管理员登录完整闭环
+
+**状态：验收通过**
+
+最新验收结论：Review 3 验收通过；历史 Review、Bug 记录及用户澄清保留，历史问题状态不代表当前结论。
+
+### Review
+
+- 验收日期：2026-09-21
+- 验收提交：`4050e41`
+- 结论：暂不通过；正常登录流程已有测试覆盖，以下两项问题需修复后复验。
+- 实际验证：原有 6 个测试通过，`npm run build`、`npm run lint` 通过；两项临时复现测试确认下述异常行为，临时测试已清理。
+- 验收边界：现有测试 mock 了 `authService`，未使用真实账号验证服务端 token 撤销，不能以 mock 调用成功证明真实 token 已失效。
+
+#### R1 / P1：普通用户 token 撤销失败被静默忽略（未解决）
+
+- 位置：`src/providers/AuthProvider.tsx:65-70`，尤其第 68 行。
+- 触发：普通用户登录成功后，`POST /auth/logout` 因网络故障或服务端错误失败；复现使用 503 拒绝响应。
+- 当前行为：`.catch(() => undefined)` 吞掉错误，清除本地 token，仅提示没有管理权限。
+- 影响：服务端 token 可能仍有效，不满足“普通用户本次 token 必须撤销”；本地清除不等于服务端撤销。
+- 修改要求：明确处理撤销失败并提供可重试的清理流程，始终拒绝普通用户进入后台；不得将未确认的撤销视为成功，不能只吞掉错误后丢弃重试所需信息。避免将待撤销 token 当作有效管理员会话。
+- 复验要求：补充撤销成功、网络或 5xx 失败、失败后重试成功的测试；验证 logout 使用本次普通用户 token；验证失败期间无法进入受保护页面且不泄漏 token。真实 API 验证应确认撤销后该 token 访问 `/me` 返回 401；如未实测须明确记录。
+
+#### R2 / P2：部分服务端错误仍直接显示英文（未解决）
+
+- 位置：`src/lib/errors.ts:35-37`；调用处 `src/pages/LoginPage.tsx`。
+- 触发：登录返回未映射的 HTTP 状态，且 `detail` 或 `detail.message` 是英文；已复现 429 + `Too Many Requests`。
+- 当前行为：直接显示后端英文原文。
+- 影响：不满足 A02 的中文错误提示要求。
+- 修改要求：按稳定错误代码或 HTTP 状态映射中文提示；未知错误使用中文兜底，不依赖英文错误文本做业务判断。
+- 复验要求：覆盖 429、5xx、未知错误代码以及字符串和对象形式的英文 detail，确认页面不显示原始英文；保留现有 401、403、422 和网络错误测试。
+
+### 补充 Bug 记录
+
+#### R3 / P2：登录后头部右侧元素高度超出父元素（待修复、待复现）
+
+- 记录日期：2026-09-21。
+- 来源：用户反馈；本条为 Bug 登记，尚未进行浏览器复现或正式复验，不改变已有 Review 结论。
+- 位置：`src/layout/AdminLayout.tsx` 中的 `.admin-header__right`；相关样式位于 `src/styles/main.scss` 的 `.admin-header` 与 `.admin-header__right`。
+- 触发：管理员登录后进入后台页面。
+- 用户观察：`admin-header__right` 元素高度超出父元素，导致头部样式显示异常。
+- 影响：登录后的后台头部布局显示不正确。
+- 修改要求：由 Coding Worker 先复现并定位高度溢出的原因，修正头部及右侧内容的尺寸和对齐；保证内容完整可见、操作正常，不以裁剪内容掩盖问题。
+- 允许修改：`src/layout/AdminLayout.tsx`、`src/styles/main.scss`；必要时补充直接相关的布局测试。该问题纳入 A02 修复范围，不扩大为 A04 整体布局重构。
+- 复验要求：在浏览器登录后检查右侧元素未超出父元素，文字和控件无裁剪、重叠；验证桌面与小屏幕、侧栏展开与折叠时布局正常，右侧操作仍可用；执行 `npm run build`、`npm run lint`，记录实际验证结果及未验证范围。
+
+### Review 2
+
+- Date: 2026-09-21
+- 验收对象：A02 工作区修复，包括 R1、R2、R3 及相关新增测试。
+- Revision: `4050e41c8011d724deaf250700f09bc5fe2642a2` + 当前未提交工作区（包含未跟踪的 `src/lib/errors.test.ts`）。
+- Result: **待修改**。
+
+Validation:
+
+- `npm test`：PASS，2 个测试文件、22 项测试通过。
+- `npm run build`：PASS；仍有约 892 kB 主 JS 包体积警告，非本轮阻断项。
+- `npm run lint`：FAIL，`src/components/PageHeader.tsx:3:46` 的 `description` 未使用。
+- Chrome 无头浏览器 + Playwright，使用受控 API 响应加载真实前端：1440×900 和 390×900、侧栏展开与折叠四种组合中，头部高 76px、右侧元素高 46px，垂直范围 14.5–60.5px，未超出父元素；小屏幕退出菜单可展开。
+- 同一浏览器流程复现旧 token 撤销 401 清除新管理员会话；390px 宽度下头像字母的计算样式为 `display: none`，尺寸为 0×0。
+- 浏览器复验脚本：`/private/tmp/a02-review.cjs`（本机临时验证材料，使用测试凭据和受控响应，不包含真实账号凭据）。
+
+Not Verified:
+
+- 未使用真实账号、真实后端验证登录及 token 撤销；不能据此宣称服务端 token 已失效。
+- 未进行 Safari、Firefox 或真实移动设备验证。
+- 现有撤销测试使用 `authService` mock；未覆盖真实 Axios 拦截器的会话隔离，亦未单独覆盖撤销网络失败路径。
+
+Resolved / Remaining:
+
+- 历史 R1：503 失败提示、保留待撤销 token、手动重试成功和拒绝普通用户进入的已有测试通过；新增并发流程仍存在会话隔离缺陷，见 R2-1。
+- 历史 R2：PASS。429、5xx、未知状态及错误代码、字符串/对象英文 detail 均使用中文映射或兜底，现有 401、403、422 和登录网络错误测试通过。
+- 历史 R3：原高度溢出已通过浏览器尺寸复验；小屏幕头像内容仍被误隐藏，见 R2-3。
+
+#### R2-1 / P1：旧 token 撤销响应会清除新管理员会话
+
+- Location: `src/lib/api.ts:19-21`；关联 `src/providers/AuthProvider.tsx:46-54`、`src/pages/LoginPage.tsx:57-63`。
+- Trigger: 登录页有待撤销 token；点击“重试”并延迟该请求响应；此时登录管理员成功；旧 token 的撤销请求随后返回 401（例如 token 已失效）。
+- Actual: 全局响应拦截器无条件清除当前 token 并发送 `manabi:unauthorized`；浏览器确认新管理员 token 被删除，页面回到 `/login`。
+- Impact: 待撤销会话的正常清理结果影响无关的新会话，管理员成功登录后被错误退出。
+- Required Change: 将待撤销 token 请求与当前管理员会话的 401 处理隔离；仅与当前会话相关的认证失败才允许清理该会话。保留当前会话真正失效时的自动退出行为。不得通过忽略所有 401 或删除全局认证保护解决。
+- Revalidation: 使用真实 Axios 请求/响应拦截器和受控 adapter 或浏览器响应，覆盖“旧 token 重试 → 新管理员登录 → 旧请求 401”仍保持管理员会话；确认待撤销记录清理、Authorization 使用旧 token；覆盖当前管理员 token 自身 401 仍退出，以及撤销网络失败、503、再次重试成功。
+
+#### R2-2 / P2：页面描述被范围外删除，并导致 lint 失败
+
+- Location: `src/components/PageHeader.tsx:3`、`:13`。
+- Trigger: 渲染传入 `description` 的工作台或模块页面；执行 `npm run lint`。
+- Actual: 原有描述段落被删除，页面说明不再显示；解构参数仍保留，触发 `@typescript-eslint/no-unused-vars`。
+- Impact: 与头部右侧高度修复无关的页面内容回退，且不满足前端统一完成标准。
+- Required Change: 恢复原有 description 渲染；不要仅删除参数、关闭 lint 规则或扩大页面重构范围。保留其他既有工作区修改。
+- Revalidation: `npm run lint` 与 `npm run build` 均通过；确认工作台与模块页面的描述正常显示。
+
+#### R2-3 / P2：小屏幕选择器误隐藏头像内部内容
+
+- Location: `src/styles/main.scss:74`。
+- Trigger: 视口宽度不超过 720px，登录后显示管理员头像。
+- Actual: `.profile-button span:last-child` 同时命中 Ant Design Avatar 内部的 `.ant-avatar-string`；390px 实测字母 A 为 `display: none`，只剩空头像。侧栏展开和折叠均可复现。
+- Impact: R3 要求的内容完整可见尚未满足，登录后的账号入口信息显示不完整。
+- Required Change: 使用明确的用户名容器类名或限于直接子元素的选择器，只隐藏预期的用户名文本，不影响 Avatar 内部内容；保持现有头部高度修复。
+- Revalidation: 桌面和小屏幕、侧栏展开和折叠时头像字母可见，头部右侧未溢出，退出菜单仍可操作。
+
+连续两轮未通过后的分析与下一步：
+
+- 当前认证方案无需重新设计；问题在于新增撤销重试请求复用了全局 401 清理逻辑，而 mock 服务测试未覆盖这一层。
+- R3 的原修复方向（纠正继承行高）有效，剩余问题是选择器范围；PageHeader 描述删除属于应恢复的范围外改动。
+- 决定继续 A02，以本 Review 的三项要求作为一个明确返工任务交给 Coding Worker，不进入 A03，不开展认证或布局架构重构。
+- 允许修改 `src/lib/api.ts`、`src/providers/AuthProvider.tsx`、`src/services/auth.ts`、`src/pages/LoginPage.tsx` 及直接相关测试以修复 R2-1；允许恢复 `src/components/PageHeader.tsx`；允许调整 `src/styles/main.scss` 和必要的 `src/layout/AdminLayout.tsx` 类名以修复 R2-3。
+- Worker 应逐项报告 Revision、Files Changed、Resolved、实际验证及 Remaining；不得修改历史 Review 或自行设置验收通过。完成后再次复验。
+
+### Review 2 补充：用户澄清 R2-2（2026-09-21）
+
+- 来源：用户明确说明 PageHeader 描述由其人工删除，产品不再需要显示描述。
+- 更正：撤回 R2-2 中“范围外删除”“页面内容回退”的判断，以及恢复 description 渲染的要求；上述历史文字仅保留为记录，不再作为返工依据。本补充同时替代 Review 2 下一步中“允许恢复 PageHeader”的要求。
+- R2-2 / P2 当前范围：仅修复未使用的 `description` 解构参数导致的 lint 失败。由 Coding Worker 移除该未使用的解构绑定即可，可保留可选 prop 类型以兼容现有调用方，不必扩大为调用方清理；不得恢复描述渲染或关闭 lint 规则。
+- 复验：`npm run lint`、`npm run build` 通过，PageHeader 继续不显示描述。
+- 状态：A02 仍为待修改；本次为需求澄清，未重新运行验证。R2-1 会话隔离与 R2-3 小屏幕头像问题的修复要求不变。
+
+### Review 3
+
+- Date: 2026-09-21
+- 验收对象：A02 最新工作区，复验 Review 2 的 R2-1、R2-2（按用户澄清）、R2-3，并回归历史 R1、R2、R3。
+- Revision: `4050e41c8011d724deaf250700f09bc5fe2642a2` + 当前未提交工作区；包含未跟踪的 `src/lib/api.test.ts`、`src/lib/errors.test.ts`、`src/providers/AuthProvider.test.tsx`。验收仅适用于本轮检查的工作区内容，不代表 HEAD 本身已包含修复。
+- Result: **验收通过**。
+
+Validation:
+
+- `npm test`：PASS，4 个测试文件、30 项测试通过。
+- `npm run build`：PASS。
+- `npm run lint`：PASS，无错误或警告。
+- `git diff --check`：PASS。
+- 新增测试通过真实 Axios 拦截器与受控 adapter，验证显式旧 token 不被当前 token 覆盖、旧请求 401 不清除新会话、当前会话 401 清理并派发退出事件、网络失败及 503 后重试；AuthProvider 测试验证待撤销记录清理且管理员会话保留。
+- Chrome 无头浏览器 + Playwright，受控 API 响应下运行真实前端：先重试旧 token 撤销，延迟响应，再登录管理员，最后返回旧请求 401；确认撤销请求使用旧 token、待撤销记录清空、新管理员 token 和后台页面保留。随后由真实 Axios 发出当前会话 `/me` 请求并返回 401，确认会话清除且跳回登录页。
+- 浏览器验证 1440×900、390×900，侧栏展开和折叠四种组合：头部高 76px，右侧高 46px、垂直范围 14.5–60.5px，无高度溢出；头像字母均可见，约 11.66×28.28px；小屏幕退出菜单可以展开。
+- 浏览器确认 PageHeader 不渲染描述段落，与用户澄清一致。
+- 本机临时浏览器复验脚本：`/private/tmp/a02-review.cjs`；上轮复现脚本保留为 `/private/tmp/a02-review2.cjs`。均使用测试凭据与受控响应。
+
+Resolved:
+
+- R2-1 / P1：PASS。401 清理仅作用于请求 token 与当前会话 token 相同的情况；旧 token 清理不会错误退出新会话。
+- R2-2 / P2：PASS。仅移除未使用的 description 解构绑定，保留不显示描述的产品行为，lint 通过。
+- R2-3 / P2：PASS。使用 `.profile-button__text` 限定用户名容器样式，不再隐藏 Avatar 内部内容。
+- 历史 R1：撤销失败提示、待撤销记录、重试及权限拒绝路径的现有测试通过，相关会话隔离缺陷已修复。
+- 历史 R2：中文错误映射及兜底测试继续通过。
+- 历史 R3：头部高度与头像内容通过本轮浏览器复验。
+
+Findings:
+
+- 本轮未发现阻断 A02 验收的遗留问题。
+- 构建仍提示主 JS 包约 892.61 kB，属于已有非阻断体积警告，后续可按路由拆包。
+
+Not Verified:
+
+- 本轮未使用真实账号或真实后端验证服务端 token 撤销，不能以受控响应宣称真实 token 已失效；真实 API 登录、撤销后 `/me` 返回 401 等联调保留在 A06 集成验收中完成。
+- 未验证 Safari、Firefox、真实移动设备及完整阶段 1 响应式布局；本轮布局复验限定为 A02 登记的头部问题。
+
+Next:
+
+- A02 无需继续返工，可按计划进入 A03；A03 与 A06 必须按各自范围独立验收，不因 A02 通过而自动视为完成。
+- 提交修复时须包含本轮新增测试文件；后续代码变更需按影响范围重新验证。
 
 ### 目标
 
@@ -104,6 +236,12 @@ npm run lint
 
 ## A03：会话恢复和自动退出
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 目标
 
 页面刷新后恢复管理员会话，token 失效时自动退出。
@@ -127,6 +265,12 @@ npm run lint
 ---
 
 ## A04：后台布局和导航
+
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
 
 ### 目标
 
@@ -165,6 +309,12 @@ npm run lint
 
 ## A05：统一设计系统
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 目标
 
 建立 Quizlet 风格的可复用视觉规范。
@@ -194,6 +344,12 @@ npm run lint
 
 ## A06：阶段 1 集成验收
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 目标
 
 确认阶段 1 可以作为后续功能的稳定基础。
@@ -220,6 +376,12 @@ npm run lint
 # 里程碑 B：用户管理
 
 ## B01：用户状态数据库迁移
+
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
 
 ### 目标
 
@@ -256,6 +418,12 @@ disabled_at
 
 ## B02：禁用用户认证保护
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 目标
 
 被禁用的用户不能继续访问系统。
@@ -278,6 +446,12 @@ disabled_at
 ---
 
 ## B03：用户列表垂直切片
+
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
 
 ### 目标
 
@@ -327,6 +501,12 @@ GET /api/v1/admin/users
 
 ## B04：创建用户垂直切片
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 目标
 
 管理员可以创建普通用户。
@@ -366,6 +546,12 @@ level
 
 ## B05：用户详情垂直切片
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 目标
 
 管理员可以查看用户基础信息和学习摘要。
@@ -404,6 +590,12 @@ GET /api/v1/admin/users/{user_id}/stats
 
 ## B06：编辑用户垂直切片
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 目标
 
 管理员可以修改普通用户资料。
@@ -438,6 +630,12 @@ PATCH /api/v1/admin/users/{user_id}
 
 ## B07：禁用与启用用户
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 目标
 
 管理员可以控制用户访问权限。
@@ -467,6 +665,12 @@ POST /api/v1/admin/users/{user_id}/enable
 
 ## B08：重置密码和撤销会话
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 目标
 
 管理员可以安全重置用户登录凭证。
@@ -495,6 +699,12 @@ POST /api/v1/admin/users/{user_id}/revoke-tokens
 ---
 
 ## B09：安全删除用户
+
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
 
 ### 目标
 
@@ -530,6 +740,12 @@ DELETE /api/v1/admin/users/{user_id}
 # 里程碑 C：真题只读管理
 
 ## C01：试卷列表垂直切片
+
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
 
 ### 后端
 
@@ -575,6 +791,12 @@ GET /api/v1/admin/exams
 
 ## C02：试卷概览垂直切片
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 后端
 
 ```text
@@ -607,6 +829,12 @@ GET /api/v1/admin/exams/{exam_id}
 
 ## C03：试卷目录垂直切片
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 目标
 
 按原卷顺序展示科目、题型和题组。
@@ -635,6 +863,12 @@ GET /api/v1/admin/exams/{exam_id}/outline
 ---
 
 ## C04：题组详情垂直切片
+
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
 
 ### 后端
 
@@ -671,6 +905,12 @@ GET /api/v1/admin/exams/{exam_id}/groups/{group_id}
 
 ## C05：媒体预览垂直切片
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 目标
 
 后台可预览图片和音频。
@@ -694,6 +934,12 @@ GET /api/v1/admin/exams/{exam_id}/groups/{group_id}
 
 ## C06：字幕只读预览
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 目标
 
 按时间展示听力字幕。
@@ -715,6 +961,12 @@ GET /api/v1/admin/exams/{exam_id}/groups/{group_id}
 ---
 
 ## C07：质量问题详情
+
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
 
 ### 后端
 
@@ -743,6 +995,12 @@ GET /api/v1/admin/occurrences/{occurrence_id}/quality-issues
 
 ## D01：操作日志基础设施
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 范围
 
 - 创建 `audit_logs`
@@ -759,6 +1017,12 @@ GET /api/v1/admin/occurrences/{occurrence_id}/quality-issues
 ---
 
 ## D02：操作日志页面
+
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
 
 ### 后端
 
@@ -791,6 +1055,12 @@ GET /api/v1/admin/audit-logs
 
 ## D03：草稿数据库基础
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 范围
 
 - 创建 `content_drafts`
@@ -810,6 +1080,12 @@ GET /api/v1/admin/audit-logs
 ---
 
 ## D04：创建和读取试卷草稿
+
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
 
 ### 后端
 
@@ -833,6 +1109,12 @@ GET  /api/v1/admin/drafts/{draft_id}
 ---
 
 ## D05：草稿自动保存
+
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
 
 ### 后端
 
@@ -860,6 +1142,12 @@ PATCH /api/v1/admin/drafts/{draft_id}
 
 ## D06：版本历史基础
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 范围
 
 - 创建 `content_revisions`
@@ -878,6 +1166,12 @@ PATCH /api/v1/admin/drafts/{draft_id}
 ---
 
 ## D07：版本历史页面
+
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
 
 ### 后端
 
@@ -901,6 +1195,12 @@ GET /api/v1/admin/revisions/{revision_id}
 ---
 
 ## D08：字段级差异比较
+
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
 
 ### 后端
 
@@ -941,6 +1241,12 @@ GET /api/v1/admin/drafts/{draft_id}/diff
 
 ## E01：试卷基础信息编辑
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 字段
 
 - 标题
@@ -959,6 +1265,12 @@ GET /api/v1/admin/drafts/{draft_id}/diff
 
 ## E02：题目与选项编辑
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 功能
 
 - 编辑题干
@@ -976,6 +1288,12 @@ GET /api/v1/admin/drafts/{draft_id}/diff
 ---
 
 ## E03：安全富文本编辑
+
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
 
 ### 功能
 
@@ -998,6 +1316,12 @@ GET /api/v1/admin/drafts/{draft_id}/diff
 
 ## E04：题组结构编辑
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 功能
 
 - 编辑大题说明
@@ -1018,6 +1342,12 @@ GET /api/v1/admin/drafts/{draft_id}/diff
 
 ## E05：阅读材料编辑
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 功能
 
 - 原文
@@ -1035,6 +1365,12 @@ GET /api/v1/admin/drafts/{draft_id}/diff
 ---
 
 ## E06：音频上传
+
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
 
 ### 功能
 
@@ -1056,6 +1392,12 @@ GET /api/v1/admin/drafts/{draft_id}/diff
 
 ## E07：字幕编辑器
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 功能
 
 - 添加和删除字幕
@@ -1075,6 +1417,12 @@ GET /api/v1/admin/drafts/{draft_id}/diff
 
 ## E08：图片资源编辑
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 功能
 
 - 上传
@@ -1093,6 +1441,12 @@ GET /api/v1/admin/drafts/{draft_id}/diff
 
 ## E09：拖拽排序
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 功能
 
 - 题组排序
@@ -1109,6 +1463,12 @@ GET /api/v1/admin/drafts/{draft_id}/diff
 ---
 
 ## E10：App 效果预览
+
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
 
 ### 功能
 
@@ -1130,6 +1490,12 @@ GET /api/v1/admin/drafts/{draft_id}/diff
 # 里程碑 F：审核与发布
 
 ## F01：内容校验服务
+
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
 
 ### 范围
 
@@ -1161,6 +1527,12 @@ POST /api/v1/admin/drafts/{draft_id}/validate
 
 ## F02：校验结果界面
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 功能
 
 - 按严重程度筛选
@@ -1176,6 +1548,12 @@ POST /api/v1/admin/drafts/{draft_id}/validate
 ---
 
 ## F03：提交审核
+
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
 
 ### 后端
 
@@ -1198,6 +1576,12 @@ POST /api/v1/admin/drafts/{draft_id}/submit
 ---
 
 ## F04：审核通过与退回
+
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
 
 ### 后端
 
@@ -1223,6 +1607,12 @@ POST /api/v1/admin/drafts/{draft_id}/reject
 ---
 
 ## F05：发布新版本
+
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
 
 ### 后端
 
@@ -1252,6 +1642,12 @@ POST /api/v1/admin/drafts/{draft_id}/publish
 
 ## F06：试卷下架与重新发布
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 后端
 
 ```text
@@ -1276,6 +1672,12 @@ POST /api/v1/admin/exams/{exam_id}/republish
 
 ## F07：版本回滚
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 后端
 
 ```text
@@ -1299,6 +1701,12 @@ POST /api/v1/admin/revisions/{revision_id}/rollback
 
 ## G01：手工创建空白试卷
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 功能
 
 - 选择等级
@@ -1316,6 +1724,12 @@ POST /api/v1/admin/revisions/{revision_id}/rollback
 ---
 
 ## G02：复制试卷结构
+
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
 
 ### 功能
 
@@ -1345,6 +1759,12 @@ POST /api/v1/admin/revisions/{revision_id}/rollback
 
 ## G03：定义标准导入格式
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 目标
 
 确定并文档化：
@@ -1368,6 +1788,12 @@ assets/images
 
 ## G04：导入上传和解析
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 功能
 
 - 上传 ZIP
@@ -1386,6 +1812,12 @@ assets/images
 ---
 
 ## G05：导入校验报告
+
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
 
 ### 功能
 
@@ -1407,6 +1839,12 @@ assets/images
 
 ## G06：导入生成草稿
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 功能
 
 - 校验通过后生成试卷草稿
@@ -1423,6 +1861,12 @@ assets/images
 ---
 
 ## G07：人工版本与导入版本冲突
+
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
 
 ### 功能
 
@@ -1446,6 +1890,12 @@ assets/images
 
 ## H01：权限审计
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 检查所有 `/api/v1/admin/*`：
 
 - 未登录 401
@@ -1456,6 +1906,12 @@ assets/images
 ---
 
 ## H02：内容安全审计
+
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
 
 检查：
 
@@ -1470,6 +1926,12 @@ assets/images
 ---
 
 ## H03：完整回归测试
+
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
 
 覆盖：
 
@@ -1490,6 +1952,12 @@ assets/images
 
 ## H04：备份和恢复演练
 
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
+
 ### 验收
 
 - 可以备份 PostgreSQL
@@ -1501,6 +1969,12 @@ assets/images
 ---
 
 ## H05：生产部署
+
+**状态：待验收**
+
+### Review
+
+尚未验收，无 Review 结论。
 
 包括：
 
