@@ -105,7 +105,9 @@ export function AdminLayout() {
         >
           <div className="admin-sider__brand"><Brand compact={collapsed} /></div>
           {menu}
-          <div className="admin-sider__footer">{collapsed ? 'M' : 'Manabi · 学び続ける'}</div>
+          <div className="admin-sider__footer">
+            {collapsed ? 'M' : <>Manabi · <span lang="ja">学び続ける</span></>}
+          </div>
         </Sider>
       )}
       <Layout>

@@ -6,8 +6,12 @@ import { ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import App from './App';
 import { AuthProvider } from './providers/AuthProvider';
+import { ConfirmProvider } from './providers/ConfirmProvider';
+import { patchAntdForReact19 } from './lib/antdReact19Patch';
 import { manabiTheme } from './theme';
 import './styles/main.scss';
+
+patchAntdForReact19();
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000, refetchOnWindowFocus: false } },
@@ -16,11 +20,13 @@ const queryClient = new QueryClient({
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ConfigProvider locale={zhCN} theme={manabiTheme}>
-      <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
-          <AuthProvider><App /></AuthProvider>
-        </BrowserRouter>
-      </QueryClientProvider>
+      <ConfirmProvider>
+        <QueryClientProvider client={queryClient}>
+          <BrowserRouter>
+            <AuthProvider><App /></AuthProvider>
+          </BrowserRouter>
+        </QueryClientProvider>
+      </ConfirmProvider>
     </ConfigProvider>
   </StrictMode>,
 );

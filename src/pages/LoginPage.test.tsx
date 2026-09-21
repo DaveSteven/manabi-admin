@@ -239,4 +239,10 @@ describe('管理员登录', () => {
       }
     }
   });
+
+  it('日文文案标记 lang=ja 以应用日文排版规范', async () => {
+    renderLogin();
+    const japanese = await screen.findByText('学ぶことは、未来をつくること。');
+    expect(japanese).toHaveAttribute('lang', 'ja');
+  });
 });

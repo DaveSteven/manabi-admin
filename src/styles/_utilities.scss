@@ -1,0 +1,29 @@
+@use 'tokens' as t;
+@use 'mixins' as m;
+
+// Japanese typography: looser line height, dedicated JP face.
+.jp,
+[lang='ja'] {
+  @include m.jp-type;
+}
+
+// Latin / numeric runs inside mixed CJK content.
+.en,
+[lang='en'] {
+  font-family: t.$font-en;
+}
+
+.text-secondary { color: t.$ink-600; }
+.text-muted { color: t.$ink-500; }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

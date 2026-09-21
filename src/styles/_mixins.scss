@@ -1,0 +1,21 @@
+@use 'tokens' as t;
+
+@mixin card-surface($radius: t.$radius-lg, $shadow: t.$shadow-card) {
+  background: t.$surface;
+  border: 1px solid t.$border;
+  border-radius: $radius;
+  box-shadow: $shadow;
+}
+
+@mixin jp-type {
+  font-family: t.$font-ja;
+  line-height: 1.9;
+  letter-spacing: .02em;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
+@mixin focus-ring {
+  outline: 2px solid t.$brand;
+  outline-offset: 2px;
+}

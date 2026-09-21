@@ -1,7 +1,8 @@
 import { ArrowRightOutlined, BookOutlined, FileSearchOutlined, TeamOutlined } from '@ant-design/icons';
-import { Button, Card, Tag } from 'antd';
+import { Button, Card } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
+import { StatusTag } from '../components/common/StatusTag';
 import { useAuth } from '../providers/AuthProvider';
 
 export function DashboardPage() {
@@ -13,12 +14,12 @@ export function DashboardPage() {
       <PageHeader eyebrow="OVERVIEW" title={`你好，${user?.username ?? '管理员'}`} description="从这里开始管理 Manabi 的用户和 JLPT 真题内容。" />
       <section className="hero-card">
         <div>
-          <Tag color="purple">阶段 1 已就绪</Tag>
+          <StatusTag tone="brand" label="阶段 1 已就绪" />
           <h2>Manabi 内容管理中心</h2>
           <p>基础框架、管理员认证和统一设计系统已经建立。接下来将接入真实用户与真题数据。</p>
           <Button type="primary" onClick={() => navigate('/exams')}>查看真题模块 <ArrowRightOutlined /></Button>
         </div>
-        <div className="hero-card__glyph">学</div>
+        <div className="hero-card__glyph" lang="ja">学</div>
       </section>
       <section className="dashboard-grid">
         <Card className="feature-card" hoverable onClick={() => navigate('/users')}>
@@ -40,7 +41,7 @@ export function DashboardPage() {
       <section className="coming-next">
         <span>接下来</span>
         <div><strong>阶段 2 · 用户管理</strong><p>分页、搜索、创建、编辑、禁用与密码重置。</p></div>
-        <Tag>尚未接入</Tag>
+        <StatusTag tone="default" label="尚未接入" />
       </section>
     </div>
   );

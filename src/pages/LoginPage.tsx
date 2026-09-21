@@ -1,8 +1,9 @@
 import { ArrowRightOutlined, BookOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
-import { Alert, Button, Form, Input, Spin } from 'antd';
+import { Alert, Button, Form, Input } from 'antd';
 import { useMemo, useRef, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Brand } from '../components/Brand';
+import { FullPageLoading } from '../components/feedback/FullPageLoading';
 import { AdminAccessRequiredError, apiErrorMessage } from '../lib/errors';
 import { useAuth } from '../providers/AuthProvider';
 import type { LoginInput } from '../types/auth';
@@ -23,7 +24,7 @@ export function LoginPage() {
   const [error, setError] = useState<string>();
   const destination = useMemo(() => resolveDestination(location.state), [location.state]);
 
-  if (loading) return <div className="app-loading"><Spin size="large" /></div>;
+  if (loading) return <FullPageLoading />;
   if (user) return <Navigate to={destination} replace />;
 
   const submit = async (values: LoginInput) => {
@@ -76,7 +77,7 @@ export function LoginPage() {
             <div><SafetyCertificateOutlined /><span><strong>版本化</strong><small>安全发布流程</small></span></div>
           </div>
         </div>
-        <p className="login-story__footer">学ぶことは、未来をつくること。</p>
+        <p className="login-story__footer" lang="ja">学ぶことは、未来をつくること。</p>
       </section>
       <section className="login-panel">
         <div className="login-card">
@@ -85,9 +86,10 @@ export function LoginPage() {
             <h2>登录管理后台</h2>
             <p>请使用已授权的管理员账号继续。</p>
           </div>
-          {error && <Alert type="error" showIcon message={error} />}
+          {error && <Alert className="login-card__alert" type="error" showIcon message={error} />}
           {pendingRevocations > 0 && (
             <Alert
+              className="login-card__alert"
               type="warning"
               showIcon
               message="会话撤销未完成"
@@ -95,7 +97,7 @@ export function LoginPage() {
               action={<Button size="small" type="primary" loading={retrying} onClick={() => void retryRevocation()}>重试</Button>}
             />
           )}
-          <Form<LoginInput> layout="vertical" requiredMark={false} onFinish={submit} size="large">
+          <Form<LoginInput> className="login-card__form" layout="vertical" requiredMark={false} onFinish={submit} size="large">
             <Form.Item label="管理员账号" name="username" rules={[{ required: true, message: '请输入管理员账号' }]}>
               <Input autoComplete="username" placeholder="请输入账号" />
             </Form.Item>

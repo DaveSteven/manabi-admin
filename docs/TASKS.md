@@ -531,11 +531,96 @@ Next:
 
 ## A05：统一设计系统
 
-**状态：待验收**
+**状态：验收通过**
 
-### Review
+### Review 1
 
-尚未验收，无 Review 结论。
+- Date: 2026-09-21
+- 验收对象：A05 主题与 Sass 变量、状态组件、全屏加载、确认弹窗及日文排版。
+- Revision: `72322866183300b3d4e3a6a8cf731fdcb082ff20` + 当前未提交工作区，包含新增的 `src/components/common/`、`src/components/feedback/`、`src/lib/confirm.ts` 及测试、`src/lib/designTokens.ts`、Sass 分文件等。
+- Result: **待修改**。
+
+Validation:
+
+- `npm test`：PASS，10 个测试文件、63 项测试通过。
+- `npm run build`：PASS；主 JS 包约 906.12 kB，仍有已有非阻断体积警告。
+- `npm run lint`：PASS；`git diff --check`：PASS。
+- 代码检查：主要颜色已集中到 TS/Sass token，Ant Design 使用公共 palette/radius/font；新增状态标签、空/错误状态组件和全屏加载组件；既有 PageHeader 保持不显示描述的用户需求；日文内容增加 lang 标记及字体、行高规则。
+- Chrome + Playwright，受控认证响应下回归 A04：六个菜单、刷新高亮、404、手机抽屉关闭与 Escape、退出均通过；320px、390px、768px、1440px，工作台/模块占位页/404 在导航打开与关闭时均未发现页面横向溢出。回归流程无 pageerror。
+- 浏览器查看登录页及全屏加载截图；实际调用 `confirmAction({ title: '确认操作', content: '中文说明 日本語 English 123' })` 时，首次等待弹窗 30 秒超时，第二次复现等待 5 秒后 `.ant-modal-content` 数量仍为 0，Promise 状态仍为 pending；控制台输出静态 Modal 上下文警告与 React 19 兼容性警告。
+- 临时材料：`/private/tmp/a05-review.cjs`、`/private/tmp/a05-login.png`、`/private/tmp/a05-loading.png`、`/private/tmp/a05-confirm-failed.png`；布局回归使用 `/private/tmp/a04-review.cjs`。
+
+Findings:
+
+#### R1 / P2：确认弹窗在当前运行环境中无法显示，且未接入项目主题上下文
+
+- Location: `src/lib/confirm.ts:19-29`；测试 `src/lib/confirm.test.ts`。
+- Trigger: 在当前 React 19 + Ant Design 5 前端中调用真实 `confirmAction`，不 mock Modal。
+- Actual: 静态 `Modal.confirm` 未渲染弹窗，用户不能确认或取消，返回 Promise 一直等待。控制台提示静态方法无法消费动态主题上下文，并提示当前静态渲染路径的 React 19 兼容问题。
+- Evidence: 两次浏览器调用均未显示弹窗；本地 `antd/es/config-provider/UnstableContext.js` 和 `rc-util/es/React/render.js` 对应静态渲染路径含兼容检测及旧 render 调用，当前入口未提供该路径的兼容处理。不能以通过 mock 的单元测试证明真实弹窗可用。
+- Impact: A05 范围内的确认弹窗尚不能使用，也无法满足统一主题要求；当前尚未接入业务调用方，因此作为 P2 阻断 A05，而非宣称已有业务操作被执行或越权。
+- Required Change: 优先使用挂载在现有 ConfigProvider 内的 `Modal.useModal` / contextHolder 或 Ant Design App 上下文 modal 实例，提供可复用的确认入口；允许为此调整前端 provider/入口及 helper 形式，保持中文按钮、danger 语义和确认/取消结果。不得仅 suppress 警告或继续只 mock 静态 Modal；不增加依赖、不为展示弹窗添加真实危险业务操作。
+- Revalidation: 在真实主题上下文中渲染并点击确认/取消，验证返回 true/false；验证自定义按钮文案、danger、重复调用、主题主色/圆角/字体一致，无静态上下文或兼容性警告。增加不 mock 整个 Modal 实现的集成测试，并完成浏览器复验、完整测试、build 和 lint。
+
+#### R2 / P3：全屏加载图标与提示文字相隔过远（非阻断建议）
+
+- Location: `src/components/feedback/FullPageLoading.tsx`、`src/styles/main.scss` 的 `.app-loading`。
+- Trigger: 高 900px 的视口等待会话恢复。
+- Actual: 图标和文字是全高 Grid 中两个自动行的独立子元素；截图中分别位于约 y=225 与 y=685，视觉上没有形成一个加载提示组。
+- Suggested Change: 将两者作为整体居中，使用内层容器或合适的 Grid 内容对齐，使间距接近设计 token。保持全屏加载、role=status 和提示文案。
+- Revalidation: 桌面与手机加载时图标和提示相邻且整体居中；该建议不单独阻断 A05。
+
+Not Verified:
+
+- 确认弹窗未显示，无法验收其确认/取消真实交互及主题效果；confirm 单元测试只验证 mock 回调。
+- 未进行完整字体平台矩阵、Ruby/阅读表格或未来内容编辑器的排版验证；本轮检查限于已有页面与新增排版规则。
+- 未实测真实后端 token 撤销，仍留待 A06；未验证 Safari、Firefox 和真实移动设备。
+
+Next:
+
+- 由 Coding Worker 完成“将确认弹窗接入 React/主题上下文并补真实交互验证”这一明确任务；R2 为可选改进。
+- Allowed Files: `src/lib/confirm.ts`、`src/lib/confirm.test.ts`（必要时改为 tsx）、`src/main.tsx`、新增直接相关的 provider/hook/测试；若处理 R2，可修改 FullPageLoading、其测试及相关 Sass。允许读取现有 App/provider 以保持挂载层级正确。
+- 不改变认证和业务 API，不新增依赖，不重构无关布局；保留 A02–A04 验收行为和用户不显示 PageHeader 描述的要求。完成后报告实际验证结果再复验。
+
+### Review 2
+
+- Date: 2026-09-21
+- 验收对象：A05 确认弹窗主题上下文修复、React 19 兼容处理及加载状态调整。
+- Revision: 当前未提交工作区；包含 `src/providers/ConfirmProvider.tsx`、`src/providers/ConfirmProvider.test.tsx`、`src/lib/antdReact19Patch.ts`、`src/lib/antdReact19Patch.test.ts`、`src/main.tsx` 以及 A05 设计系统文件和测试。验收结论适用于本次检查的工作区内容。
+- Result: **验收通过**。
+
+Validation:
+
+- `npm test`：PASS，11 个测试文件、65 项测试通过。
+- `npm run build`：PASS；主 JS 包约 934.74 kB，仍有非阻断体积警告。
+- `npm run lint`：PASS；`git diff --check`：PASS。
+- 真实浏览器 + Playwright：在现有主题上下文中挂载 `ConfirmProvider`，调用确认入口并点击真实按钮；确认弹窗显示，danger 按钮具备 `ant-btn-dangerous`，中日英混排内容可见，日文节点保留 `lang="ja"`，确认返回 `true`、取消返回 `false`，连续第二次调用返回 `false`。
+- 同一浏览器流程未出现此前的静态 Modal 上下文警告或 React 19 兼容警告；控制台未发现相关 warning/error。
+- `FullPageLoading` 已使用内层容器，图标和“正在恢复会话…”提示作为整体居中并保持合理间距。
+- A04 响应式导航回归仍通过：320px、390px、768px、1440px 无横向溢出，抽屉打开/关闭、菜单跳转、404、退出流程正常；本轮沿用已验收的浏览器回归结果。
+- 浏览器复验脚本：`/private/tmp/a05-review2.cjs`；上一轮失败脚本和截图保留为历史材料。
+
+Resolved:
+
+- Review 1 / R1 / P2：PASS。由 `ConfirmProvider` 使用 `Modal.useModal` 与上下文 holder 提供确认入口，并通过 `unstableSetRender` 的 React 19 兼容渲染器处理 antd 静态渲染路径；真实浏览器确认/取消可用，无相关警告。测试覆盖危险按钮、自定义文案、重复调用和主题上下文。
+- Review 1 / R2 / P3：PASS。加载图标与提示文字包在 `.app-loading__inner` 中，整体居中，保留 `role="status"`、`aria-live` 和默认/自定义提示。
+
+Findings:
+
+- 本轮未发现阻断 A05 验收的遗留问题。
+- jsdom 测试仍输出 `getComputedStyle` 伪元素未实现提示，属于测试环境提示；测试、构建和浏览器流程均通过。
+- 主 JS 包约 934.74 kB，体积警告为非阻断后续优化项。
+
+Not Verified:
+
+- 未进行完整字体平台矩阵、Ruby/阅读表格或未来内容编辑器的排版验证；本轮验证覆盖已有页面、公共组件和中日英混排示例。
+- 未验证 Safari、Firefox、真实移动设备及完整无障碍审计。
+- 未实测真实后端 token 撤销，仍留待 A06。
+
+Next:
+
+- A05 无需继续返工，可进入 A06 阶段 1 集成验收。
+- 提交时须包含新增 provider、React 19 兼容 patch、设计 token、公共状态组件及对应测试；后续变更需按影响范围重新验证。
 
 ### 目标
 
