@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ConfigProvider } from 'antd';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -28,6 +28,7 @@ const DETAIL: AdminUserDetail = {
   is_admin: false,
   created_at: '2026-01-02T03:04:05Z',
   last_login_at: '2026-02-03T04:05:06Z',
+  updated_at: '2026-02-03T04:05:06Z',
 };
 
 const STATS: AdminUserStats = {
@@ -41,6 +42,10 @@ const STATS: AdminUserStats = {
 
 function isStats(config: InternalAxiosRequestConfig) {
   return (config.url ?? '').endsWith('/stats');
+}
+
+function isPatch(config: InternalAxiosRequestConfig) {
+  return (config.method ?? 'get').toLowerCase() === 'patch';
 }
 
 function renderPage(path = '/users/u1') {
@@ -123,5 +128,101 @@ describe('B05 用户详情', () => {
     await user.click(screen.getByRole('button', { name: /重\s*试/ }));
 
     expect(await screen.findByText('75.0%')).toBeInTheDocument();
+  }, 15_000);
+});
+
+describe('B06 编辑用户', () => {
+  it('保存成功后更新页面并使用 updated_at 并发版本', async () => {
+    const patches: Array<Record<string, unknown>> = [];
+    api.defaults.adapter = ((config: InternalAxiosRequestConfig) => {
+      if (isPatch(config)) {
+        patches.push(JSON.parse(String(config.data)) as Record<string, unknown>);
+        return Promise.resolve(ok(config, { ...DETAIL, username: 'alice2', display_name: '新名字', updated_at: '2026-02-04T00:00:00Z' }));
+      }
+      if (isStats(config)) return Promise.resolve(ok(config, STATS));
+      return Promise.resolve(ok(config, DETAIL));
+    }) as AxiosAdapter;
+
+    renderPage();
+    await screen.findByRole('heading', { name: 'alice' });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /编辑资料/ }));
+    const dialog = await screen.findByRole('dialog');
+    const displayInput = within(dialog).getByLabelText('显示名称');
+    await user.clear(displayInput);
+    await user.type(displayInput, '新名字');
+    await user.click(within(dialog).getByRole('button', { name: /保\s*存/ }));
+
+    expect(await screen.findByText('用户资料已更新')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'alice2' })).toBeInTheDocument();
+    expect(patches[0]).toMatchObject({ display_name: '新名字', updated_at: DETAIL.updated_at });
+    expect(patches[0]).not.toHaveProperty('level');
+    expect(patches[0]).not.toHaveProperty('is_admin');
+  }, 15_000);
+
+  it('用户名冲突时显示明确提示且保持弹窗', async () => {
+    api.defaults.adapter = ((config: InternalAxiosRequestConfig) => {
+      if (isPatch(config)) {
+        return Promise.reject({ isAxiosError: true, config, response: { status: 409, data: { detail: { code: 'USERNAME_TAKEN', message: 'Username already exists' } } } });
+      }
+      if (isStats(config)) return Promise.resolve(ok(config, STATS));
+      return Promise.resolve(ok(config, DETAIL));
+    }) as AxiosAdapter;
+
+    renderPage();
+    await screen.findByRole('heading', { name: 'alice' });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /编辑资料/ }));
+    const dialog = await screen.findByRole('dialog');
+    const usernameInput = within(dialog).getByLabelText('用户名');
+    await user.clear(usernameInput);
+    await user.type(usernameInput, 'taken');
+    await user.click(within(dialog).getByRole('button', { name: /保\s*存/ }));
+
+    expect(await screen.findByText('该用户名已存在，请更换。')).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  }, 15_000);
+
+  it('并发冲突时提示刷新重试', async () => {
+    api.defaults.adapter = ((config: InternalAxiosRequestConfig) => {
+      if (isPatch(config)) {
+        return Promise.reject({ isAxiosError: true, config, response: { status: 409, data: { detail: { code: 'EDIT_CONFLICT', message: 'User was modified' } } } });
+      }
+      if (isStats(config)) return Promise.resolve(ok(config, STATS));
+      return Promise.resolve(ok(config, DETAIL));
+    }) as AxiosAdapter;
+
+    renderPage();
+    await screen.findByRole('heading', { name: 'alice' });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /编辑资料/ }));
+    const dialog = await screen.findByRole('dialog');
+    const displayInput = within(dialog).getByLabelText('显示名称');
+    await user.clear(displayInput);
+    await user.type(displayInput, '冲突');
+    await user.click(within(dialog).getByRole('button', { name: /保\s*存/ }));
+
+    expect(await screen.findByText('该用户资料已被其他管理员修改，请刷新后重试。')).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  }, 15_000);
+
+  it('未修改任何字段时提示无需保存', async () => {
+    api.defaults.adapter = ((config: InternalAxiosRequestConfig) => {
+      if (isStats(config)) return Promise.resolve(ok(config, STATS));
+      return Promise.resolve(ok(config, DETAIL));
+    }) as AxiosAdapter;
+
+    renderPage();
+    await screen.findByRole('heading', { name: 'alice' });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /编辑资料/ }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: /保\s*存/ }));
+
+    expect(await screen.findByText('没有需要保存的修改。')).toBeInTheDocument();
   }, 15_000);
 });

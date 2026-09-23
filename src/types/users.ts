@@ -16,7 +16,15 @@ export interface AdminUsersResponse {
   offset: number;
 }
 
-export type AdminUserDetail = AdminUserListItem;
+export interface AdminUserDetail extends AdminUserListItem {
+  updated_at: string | null;
+}
+
+export interface AdminUserUpdateInput {
+  username?: string;
+  display_name?: string | null;
+  updated_at: string;
+}
 
 export interface AdminUserStatsLevel {
   level: string;

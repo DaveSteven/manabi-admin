@@ -1,13 +1,19 @@
-import { ArrowLeftOutlined, ReloadOutlined } from '@ant-design/icons';
-import { Card, Descriptions, Space, Statistic, Table, Button, type TableProps } from 'antd';
-import { useQuery } from '@tanstack/react-query';
+import { ArrowLeftOutlined, EditOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Alert, Card, Descriptions, Form, Input, Modal, Space, Statistic, Table, Button, type TableProps } from 'antd';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useState } from 'react';
 import { PageHeader } from '../components/PageHeader';
 import { StateBlock } from '../components/feedback/StateBlock';
 import { StatusTag } from '../components/common/StatusTag';
-import { apiErrorStatus, apiErrorMessage } from '../lib/errors';
+import { apiErrorCode, apiErrorStatus, apiErrorMessage } from '../lib/errors';
 import { usersService } from '../services/users';
-import type { AdminUserStatsLevel } from '../types/users';
+import type { AdminUserStatsLevel, AdminUserUpdateInput } from '../types/users';
+
+interface EditFormValues {
+  username: string;
+  display_name?: string;
+}
 
 function formatDateTime(value: string | null): string {
   if (!value) return '—';
@@ -22,6 +28,12 @@ function formatAccuracy(value: number): string {
 export function UserDetailPage() {
   const { userId } = useParams<{ userId: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [editOpen, setEditOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState<string>();
+  const [saved, setSaved] = useState(false);
+  const [editForm] = Form.useForm<EditFormValues>();
 
   const detailQuery = useQuery({
     queryKey: ['admin', 'users', userId],
@@ -33,6 +45,60 @@ export function UserDetailPage() {
     queryFn: () => usersService.stats(userId as string),
     enabled: Boolean(userId),
   });
+
+  const detail = detailQuery.data;
+  const stats = statsQuery.data;
+
+  const openEdit = () => {
+    if (!detail) return;
+    setEditError(undefined);
+    editForm.setFieldsValue({ username: detail.username ?? '', display_name: detail.display_name ?? '' });
+    setEditOpen(true);
+  };
+
+  const closeEdit = () => {
+    if (saving) return;
+    setEditOpen(false);
+    setEditError(undefined);
+  };
+
+  const submitEdit = async () => {
+    if (saving || !detail || !userId) return;
+    let values: EditFormValues;
+    try {
+      values = await editForm.validateFields();
+    } catch {
+      return;
+    }
+    const payload: AdminUserUpdateInput = { updated_at: detail.updated_at ?? '' };
+    const username = values.username.trim();
+    const displayName = values.display_name?.trim() ?? '';
+    if (username !== (detail.username ?? '')) payload.username = username;
+    if (displayName !== (detail.display_name ?? '')) payload.display_name = displayName || null;
+    if (payload.username === undefined && payload.display_name === undefined) {
+      setEditError('没有需要保存的修改。');
+      return;
+    }
+    setSaving(true);
+    setEditError(undefined);
+    try {
+      const updated = await usersService.update(userId, payload);
+      queryClient.setQueryData(['admin', 'users', userId], updated);
+      void queryClient.invalidateQueries({
+        queryKey: ['admin', 'users'],
+        predicate: (query) => query.queryKey.length === 3 && typeof query.queryKey[2] === 'object',
+      });
+      setEditOpen(false);
+      setSaved(true);
+    } catch (error) {
+      const code = apiErrorCode(error);
+      if (code === 'EDIT_CONFLICT') setEditError('该用户资料已被其他管理员修改，请刷新后重试。');
+      else if (code === 'USERNAME_TAKEN') setEditError('该用户名已存在，请更换。');
+      else setEditError(apiErrorMessage(error));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const columns: TableProps<AdminUserStatsLevel>['columns'] = [
     { title: '等级', dataIndex: 'level', key: 'level' },
@@ -58,9 +124,6 @@ export function UserDetailPage() {
     );
   }
 
-  const detail = detailQuery.data;
-  const stats = statsQuery.data;
-
   return (
     <div className="page user-detail-page">
       <PageHeader
@@ -69,6 +132,7 @@ export function UserDetailPage() {
         description={detail?.display_name ? `显示名称：${detail.display_name}` : undefined}
         action={(
           <Space>
+            <Button type="primary" icon={<EditOutlined />} disabled={!detail} onClick={openEdit}>编辑资料</Button>
             <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/users')}>返回列表</Button>
             <Button
               icon={<ReloadOutlined />}
@@ -80,6 +144,17 @@ export function UserDetailPage() {
           </Space>
         )}
       />
+
+      {saved && (
+        <Alert
+          className="users-page__notice"
+          type="success"
+          showIcon
+          closable
+          message="用户资料已更新"
+          onClose={() => setSaved(false)}
+        />
+      )}
 
       <Card className="user-detail-card" title="用户资料" loading={detailQuery.isLoading}>
         {detail && (
@@ -129,6 +204,37 @@ export function UserDetailPage() {
           </>
         )}
       </Card>
+
+      <Modal
+        title="编辑用户资料"
+        open={editOpen}
+        okText="保存"
+        cancelText="取消"
+        confirmLoading={saving}
+        maskClosable={!saving}
+        onOk={() => void submitEdit()}
+        onCancel={closeEdit}
+      >
+        {editError && <Alert className="users-page__notice" type="error" showIcon message={editError} />}
+        <Form form={editForm} layout="vertical" requiredMark={false} className="user-detail-edit-form">
+          <Form.Item
+            label="用户名"
+            name="username"
+            rules={[
+              { required: true, message: '请输入用户名' },
+              { min: 3, message: '用户名至少 3 位' },
+              { max: 64, message: '用户名最多 64 位' },
+              { pattern: /^[a-zA-Z0-9_.-]+$/, message: '用户名只能包含字母、数字、下划线、点和连字符' },
+            ]}
+          >
+            <Input autoComplete="off" />
+          </Form.Item>
+          <Form.Item label="显示名称" name="display_name" rules={[{ max: 64, message: '显示名称最多 64 个字符' }]}>
+            <Input autoComplete="off" placeholder="留空表示清除显示名称" />
+          </Form.Item>
+          <p className="users-create-form__hint">用户名和显示名称可修改；等级、状态和权限不在后台编辑。</p>
+        </Form>
+      </Modal>
     </div>
   );
 }

@@ -5,6 +5,7 @@ import type {
   AdminUserDetail,
   AdminUserListParams,
   AdminUserStats,
+  AdminUserUpdateInput,
   AdminUsersResponse,
 } from '../types/users';
 
@@ -15,6 +16,8 @@ export const usersService = {
     (await api.post<AdminUser>('/admin/users', input)).data,
   get: async (id: string) =>
     (await api.get<AdminUserDetail>(`/admin/users/${encodeURIComponent(id)}`)).data,
+  update: async (id: string, input: AdminUserUpdateInput) =>
+    (await api.patch<AdminUserDetail>(`/admin/users/${encodeURIComponent(id)}`, input)).data,
   stats: async (id: string) =>
     (await api.get<AdminUserStats>(`/admin/users/${encodeURIComponent(id)}/stats`)).data,
 };
