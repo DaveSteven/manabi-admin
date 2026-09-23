@@ -1296,11 +1296,43 @@ POST /api/v1/admin/users/{user_id}/revoke-tokens
 
 ## B09：安全删除用户
 
-**状态：待验收**
+**状态：待修改**
 
-### Review
+### Review 1
 
-尚未验收，无 Review 结论。
+- 验收日期：2026-09-23
+- 验收对象：B09 管理员删除无业务数据普通用户的后端接口与用户详情页流程。
+- 结论：**核心功能部分通过；存在并发安全问题，且待 D01 审计联验**。
+
+Validation:
+
+- 后端 `PYTHONPATH=. ./.venv/bin/pytest -q`：86 passed，3 skipped。
+- 前端 `npm test -- --run`：13 个测试文件、95 项测试通过。
+- 前端 `npm run build`：通过；`npm run lint`：通过。
+- 已覆盖管理员权限、404、不能删除自己、不能删除管理员、无业务数据删除、token 清理、练习数据 409、错题数据 409。
+- 前端包含危险操作确认，明确区分删除和禁用；失败时提示改用禁用。
+
+Finding:
+
+#### R1 / P1：删除前检查与删除操作未锁定用户行，存在并发竞态
+
+- 位置：`manabi_api/app/main.py` 的 `delete_admin_user`。
+- 当前行为：先通过 `db.get(User, user_id)` 和独立 count 查询检查练习/错题，之后才删除用户，没有 `SELECT ... FOR UPDATE` 锁定目标用户。
+- 影响：并发请求可能在检查通过后新建练习或错题，删除流程可能破坏业务数据完整性、触发外键错误，或违反“仅删除无业务数据用户”的规则。
+- Required Change：在同一事务最开始用 `SELECT ... FOR UPDATE` 锁定目标用户，再检查 `Practice`、`WrongQuestion`，删除 token 和用户；确保创建练习等写路径使用同一用户行锁。补充并发场景测试，并确认外键约束下不会出现 500。
+
+Remaining:
+
+- “操作有审计日志”按当前范围裁决延后至 D01。D01 完成后需回接删除操作，并记录安全摘要，不记录密码或 token。
+
+### Review 2
+
+- 验收日期：2026-09-23
+- 验收对象：B09 并发删除修复后的后端接口。
+- 结论：**并发问题已修复；整体待 D01 审计联验**。
+- 复验：删除接口现在先以 `SELECT ... FOR UPDATE` 锁定目标用户，再检查练习/错题记录并执行删除；新增并发创建练习与删除的序列化测试，`tests/test_admin_user_delete.py`：7 passed，1 skipped。
+- 前次完整验证仍通过：后端 86 passed，3 skipped；前端 95 passed；构建和 lint 通过。
+- 剩余项：删除操作审计日志按范围裁决延后至 D01，完成回接后再追加最终联验。
 
 ### 目标
 
