@@ -1,4 +1,4 @@
-import { ArrowLeftOutlined, CheckCircleOutlined, EditOutlined, KeyOutlined, LogoutOutlined, ReloadOutlined, StopOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, CheckCircleOutlined, DeleteOutlined, EditOutlined, KeyOutlined, LogoutOutlined, ReloadOutlined, StopOutlined } from '@ant-design/icons';
 import { Alert, Card, Descriptions, Form, Input, Modal, Space, Statistic, Table, Button, type TableProps } from 'antd';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -52,6 +52,9 @@ function adminActionMessage(error: unknown): string {
   const code = apiErrorCode(error);
   if (code === 'CANNOT_DISABLE_SELF') return '不能禁用当前登录账号。';
   if (code === 'LAST_ADMIN_PROTECTED') return '不能禁用最后一个管理员。';
+  if (code === 'CANNOT_DELETE_SELF') return '不能删除当前登录账号。';
+  if (code === 'CANNOT_DELETE_ADMIN') return '管理员账号不能通过该接口删除。';
+  if (code === 'HAS_PRACTICE_DATA' || code === 'HAS_WRONG_DATA') return '该用户存在练习或错题数据，无法删除，请改用禁用。';
   if (code === 'USER_DELETED') return '该用户已删除，无法执行该操作。';
   return apiErrorMessage(error);
 }
@@ -71,6 +74,7 @@ export function UserDetailPage() {
   const [resetting, setResetting] = useState(false);
   const [resetError, setResetError] = useState<string>();
   const [revoking, setRevoking] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [actionError, setActionError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [editForm] = Form.useForm<EditFormValues>();
@@ -253,6 +257,31 @@ export function UserDetailPage() {
     }
   };
 
+  const deleteUser = async () => {
+    if (!detail || !userId) return;
+    const ok = await confirm({
+      title: '删除用户',
+      content: `确定要永久删除「${detail.username ?? detail.id}」吗？此操作不可恢复。若该用户已有学习数据，请改用禁用。`,
+      okText: '删除',
+      danger: true,
+    });
+    if (!ok) return;
+    setActionError(undefined);
+    setDeleting(true);
+    try {
+      await usersService.remove(userId);
+      void queryClient.invalidateQueries({
+        queryKey: ['admin', 'users'],
+        predicate: (query) => query.queryKey.length === 3 && typeof query.queryKey[2] === 'object',
+      });
+      navigate('/users');
+    } catch (error) {
+      setActionError(adminActionMessage(error));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const strength = watchedPassword ? passwordStrength(watchedPassword) : undefined;
 
   const columns: TableProps<AdminUserStatsLevel>['columns'] = [
@@ -360,6 +389,26 @@ export function UserDetailPage() {
               </Button>
             </Space>
             <p className="users-create-form__hint">重置密码会同时撤销该用户全部登录会话；撤销会话不会修改密码。旧密码不会被显示。</p>
+          </>
+        )}
+      </Card>
+
+      <Card className="user-detail-card user-detail-danger" title="危险操作" loading={detailQuery.isLoading}>
+        {detail && (
+          <>
+            <p className="users-create-form__hint">删除会永久移除该账号及其登录会话，且不可恢复；只有没有任何练习或错题数据的普通用户才能删除。若该用户有学习数据，请改用“禁用用户”。</p>
+            <Space wrap>
+              <Button
+                danger
+                icon={<DeleteOutlined />}
+                disabled={detail.is_admin || detail.status === 'deleted'}
+                loading={deleting}
+                onClick={() => void deleteUser()}
+              >
+                删除用户
+              </Button>
+            </Space>
+            {detail.is_admin && <p className="users-create-form__hint">管理员账号不能通过该接口删除。</p>}
           </>
         )}
       </Card>

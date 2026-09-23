@@ -28,6 +28,9 @@ export const usersService = {
     (await api.post<AdminUserDetail>(`/admin/users/${encodeURIComponent(id)}/reset-password`, input)).data,
   revokeTokens: async (id: string) =>
     (await api.post<AdminUserDetail>(`/admin/users/${encodeURIComponent(id)}/revoke-tokens`)).data,
+  remove: async (id: string) => {
+    await api.delete(`/admin/users/${encodeURIComponent(id)}`);
+  },
   stats: async (id: string) =>
     (await api.get<AdminUserStats>(`/admin/users/${encodeURIComponent(id)}/stats`)).data,
 };

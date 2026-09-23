@@ -65,6 +65,10 @@ function isRevoke(config: InternalAxiosRequestConfig) {
   return (config.url ?? '').endsWith('/revoke-tokens');
 }
 
+function isDelete(config: InternalAxiosRequestConfig) {
+  return (config.method ?? 'get').toLowerCase() === 'delete';
+}
+
 function renderPage(path = '/users/u1') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -74,6 +78,7 @@ function renderPage(path = '/users/u1') {
           <MemoryRouter initialEntries={[path]}>
             <Routes>
               <Route path="/users/:userId" element={<UserDetailPage />} />
+              <Route path="/users" element={<div>USERS_LIST</div>} />
             </Routes>
           </MemoryRouter>
         </ConfirmProvider>
@@ -425,5 +430,64 @@ describe('B08 重置密码和撤销会话', () => {
 
     expect(await screen.findByText('已撤销该用户的全部登录会话')).toBeInTheDocument();
     expect(revokeCalls).toBe(1);
+  }, 15_000);
+});
+
+describe('B09 安全删除用户', () => {
+  it('删除成功后返回列表并发出 DELETE 请求', async () => {
+    const deletes: string[] = [];
+    api.defaults.adapter = ((config: InternalAxiosRequestConfig) => {
+      if (isDelete(config)) {
+        deletes.push(config.url ?? '');
+        return Promise.resolve({ data: null, status: 204, statusText: 'No Content', headers: {}, config });
+      }
+      if (isStats(config)) return Promise.resolve(ok(config, STATS));
+      return Promise.resolve(ok(config, DETAIL));
+    }) as AxiosAdapter;
+
+    renderPage();
+    await screen.findByRole('heading', { name: 'alice' });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /删除用户/ }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: /删\s*除/ }));
+
+    expect(await screen.findByText('USERS_LIST')).toBeInTheDocument();
+    expect(deletes[0]).toContain('/admin/users/u1');
+  }, 15_000);
+
+  it('存在学习数据时提示改用禁用', async () => {
+    api.defaults.adapter = ((config: InternalAxiosRequestConfig) => {
+      if (isDelete(config)) {
+        return Promise.reject({ isAxiosError: true, config, response: { status: 409, data: { detail: { code: 'HAS_PRACTICE_DATA', message: 'User has practice data' } } } });
+      }
+      if (isStats(config)) return Promise.resolve(ok(config, STATS));
+      return Promise.resolve(ok(config, DETAIL));
+    }) as AxiosAdapter;
+
+    renderPage();
+    await screen.findByRole('heading', { name: 'alice' });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /删除用户/ }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: /删\s*除/ }));
+
+    expect(await screen.findByText('该用户存在练习或错题数据，无法删除，请改用禁用。')).toBeInTheDocument();
+    expect(screen.queryByText('USERS_LIST')).not.toBeInTheDocument();
+  }, 15_000);
+
+  it('管理员账号不可删除', async () => {
+    api.defaults.adapter = ((config: InternalAxiosRequestConfig) => {
+      if (isStats(config)) return Promise.resolve(ok(config, STATS));
+      return Promise.resolve(ok(config, { ...DETAIL, is_admin: true }));
+    }) as AxiosAdapter;
+
+    renderPage();
+    await screen.findByRole('heading', { name: 'alice' });
+
+    expect(screen.getByRole('button', { name: /删除用户/ })).toBeDisabled();
+    expect(screen.getByText('管理员账号不能通过该接口删除。')).toBeInTheDocument();
   }, 15_000);
 });
