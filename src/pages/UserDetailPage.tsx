@@ -1,4 +1,4 @@
-import { ArrowLeftOutlined, CheckCircleOutlined, EditOutlined, ReloadOutlined, StopOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, CheckCircleOutlined, EditOutlined, KeyOutlined, LogoutOutlined, ReloadOutlined, StopOutlined } from '@ant-design/icons';
 import { Alert, Card, Descriptions, Form, Input, Modal, Space, Statistic, Table, Button, type TableProps } from 'antd';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -20,6 +20,11 @@ interface DisableFormValues {
   reason: string;
 }
 
+interface ResetFormValues {
+  password: string;
+  confirm: string;
+}
+
 function formatDateTime(value: string | null): string {
   if (!value) return '—';
   const date = new Date(value);
@@ -28,6 +33,19 @@ function formatDateTime(value: string | null): string {
 
 function formatAccuracy(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
+}
+
+function passwordStrength(password: string): { label: string; tone: 'error' | 'warning' | 'success' } {
+  let score = 0;
+  if (/[a-z]/.test(password)) score += 1;
+  if (/[A-Z]/.test(password)) score += 1;
+  if (/[0-9]/.test(password)) score += 1;
+  if (/[^a-zA-Z0-9]/.test(password)) score += 1;
+  if (password.length >= 12) score += 1;
+  if (password.length < 8) return { label: '密码强度：弱', tone: 'error' };
+  if (score >= 4) return { label: '密码强度：强', tone: 'success' };
+  if (score >= 2) return { label: '密码强度：中', tone: 'warning' };
+  return { label: '密码强度：弱', tone: 'error' };
 }
 
 function adminActionMessage(error: unknown): string {
@@ -49,10 +67,16 @@ export function UserDetailPage() {
   const [disableOpen, setDisableOpen] = useState(false);
   const [disabling, setDisabling] = useState(false);
   const [disableError, setDisableError] = useState<string>();
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [resetError, setResetError] = useState<string>();
+  const [revoking, setRevoking] = useState(false);
   const [actionError, setActionError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [editForm] = Form.useForm<EditFormValues>();
   const [disableForm] = Form.useForm<DisableFormValues>();
+  const [resetForm] = Form.useForm<ResetFormValues>();
+  const watchedPassword = Form.useWatch('password', resetForm);
 
   const detailQuery = useQuery({
     queryKey: ['admin', 'users', userId],
@@ -175,6 +199,62 @@ export function UserDetailPage() {
     }
   };
 
+  const openReset = () => {
+    setResetError(undefined);
+    resetForm.resetFields();
+    setResetOpen(true);
+  };
+
+  const closeReset = () => {
+    if (resetting) return;
+    setResetOpen(false);
+    setResetError(undefined);
+  };
+
+  const submitReset = async () => {
+    if (resetting || !userId) return;
+    let values: ResetFormValues;
+    try {
+      values = await resetForm.validateFields();
+    } catch {
+      return;
+    }
+    setResetting(true);
+    setResetError(undefined);
+    try {
+      await usersService.resetPassword(userId, { password: values.password });
+      setResetOpen(false);
+      setNotice('密码已重置，该用户的登录会话已全部失效');
+    } catch (error) {
+      setResetError(adminActionMessage(error));
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  const revokeSessions = async () => {
+    if (!detail || !userId) return;
+    const ok = await confirm({
+      title: '撤销全部会话',
+      content: `确定要撤销「${detail.username ?? detail.id}」的全部登录会话吗？`,
+      okText: '撤销',
+      danger: true,
+    });
+    if (!ok) return;
+    setActionError(undefined);
+    setRevoking(true);
+    try {
+      await usersService.revokeTokens(userId);
+      setNotice('已撤销该用户的全部登录会话');
+    } catch (error) {
+      setActionError(adminActionMessage(error));
+    } finally {
+      setRevoking(false);
+    }
+  };
+
+  const strength = watchedPassword ? passwordStrength(watchedPassword) : undefined;
+
   const columns: TableProps<AdminUserStatsLevel>['columns'] = [
     { title: '等级', dataIndex: 'level', key: 'level' },
     { title: '练习次数', dataIndex: 'practices', key: 'practices' },
@@ -264,6 +344,26 @@ export function UserDetailPage() {
         )}
       </Card>
 
+      <Card className="user-detail-card" title="账号安全" loading={detailQuery.isLoading}>
+        {detail && (
+          <>
+            <Space wrap>
+              <Button icon={<KeyOutlined />} disabled={detail.status === 'deleted'} onClick={openReset}>重置密码</Button>
+              <Button
+                danger
+                icon={<LogoutOutlined />}
+                disabled={detail.status === 'deleted'}
+                loading={revoking}
+                onClick={() => void revokeSessions()}
+              >
+                撤销全部会话
+              </Button>
+            </Space>
+            <p className="users-create-form__hint">重置密码会同时撤销该用户全部登录会话；撤销会话不会修改密码。旧密码不会被显示。</p>
+          </>
+        )}
+      </Card>
+
       <Card className="user-detail-card" title="学习摘要" loading={statsQuery.isLoading}>
         {statsQuery.isError ? (
           <StateBlock
@@ -350,6 +450,53 @@ export function UserDetailPage() {
             ]}
           >
             <Input.TextArea rows={3} maxLength={500} placeholder="请说明禁用原因（用于后续审计）" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="重置密码"
+        open={resetOpen}
+        okText="确认重置"
+        okButtonProps={{ danger: true }}
+        cancelText="取消"
+        confirmLoading={resetting}
+        maskClosable={!resetting}
+        onOk={() => void submitReset()}
+        onCancel={closeReset}
+      >
+        {resetError && <Alert className="users-page__notice" type="error" showIcon message={resetError} />}
+        <p className="users-create-form__hint">重置后该用户的全部登录会话将立即失效，需要使用新密码重新登录。旧密码不会被显示。</p>
+        <Form form={resetForm} layout="vertical" requiredMark={false}>
+          <Form.Item
+            label="新密码"
+            name="password"
+            rules={[
+              { required: true, message: '请输入新密码' },
+              { min: 8, message: '密码至少 8 位' },
+              { max: 128, message: '密码最多 128 位' },
+            ]}
+          >
+            <Input.Password autoComplete="new-password" placeholder="至少 8 位" />
+          </Form.Item>
+          {strength && (
+            <p className={`user-detail-strength user-detail-strength--${strength.tone}`}>{strength.label}</p>
+          )}
+          <Form.Item
+            label="确认新密码"
+            name="confirm"
+            dependencies={['password']}
+            rules={[
+              { required: true, message: '请再次输入新密码' },
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  if (!value || getFieldValue('password') === value) return Promise.resolve();
+                  return Promise.reject(new Error('两次输入的密码不一致'));
+                },
+              }),
+            ]}
+          >
+            <Input.Password autoComplete="new-password" placeholder="再次输入新密码" />
           </Form.Item>
         </Form>
       </Modal>

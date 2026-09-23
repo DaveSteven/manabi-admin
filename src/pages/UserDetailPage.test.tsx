@@ -57,6 +57,14 @@ function isEnable(config: InternalAxiosRequestConfig) {
   return (config.url ?? '').endsWith('/enable');
 }
 
+function isReset(config: InternalAxiosRequestConfig) {
+  return (config.url ?? '').endsWith('/reset-password');
+}
+
+function isRevoke(config: InternalAxiosRequestConfig) {
+  return (config.url ?? '').endsWith('/revoke-tokens');
+}
+
 function renderPage(path = '/users/u1') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -324,5 +332,98 @@ describe('B07 禁用与启用', () => {
     await user.click(within(dialog).getByRole('button', { name: /确认禁用/ }));
 
     expect(await screen.findByText('不能禁用最后一个管理员。')).toBeInTheDocument();
+  }, 15_000);
+});
+
+describe('B08 重置密码和撤销会话', () => {
+  it('重置密码成功后提示会话失效并提交新密码', async () => {
+    const posts: Array<Record<string, unknown>> = [];
+    api.defaults.adapter = ((config: InternalAxiosRequestConfig) => {
+      if (isReset(config)) {
+        posts.push(JSON.parse(String(config.data)) as Record<string, unknown>);
+        return Promise.resolve(ok(config, DETAIL));
+      }
+      if (isStats(config)) return Promise.resolve(ok(config, STATS));
+      return Promise.resolve(ok(config, DETAIL));
+    }) as AxiosAdapter;
+
+    renderPage();
+    await screen.findByRole('heading', { name: 'alice' });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /重置密码/ }));
+    const dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByLabelText('新密码'), 'StrongPass1!');
+    await user.type(within(dialog).getByLabelText('确认新密码'), 'StrongPass1!');
+    await user.click(within(dialog).getByRole('button', { name: /确认重置/ }));
+
+    expect(await screen.findByText('密码已重置，该用户的登录会话已全部失效')).toBeInTheDocument();
+    expect(posts[0]).toEqual({ password: 'StrongPass1!' });
+  }, 15_000);
+
+  it('密码强度提示随输入变化', async () => {
+    api.defaults.adapter = ((config: InternalAxiosRequestConfig) => {
+      if (isStats(config)) return Promise.resolve(ok(config, STATS));
+      return Promise.resolve(ok(config, DETAIL));
+    }) as AxiosAdapter;
+
+    renderPage();
+    await screen.findByRole('heading', { name: 'alice' });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /重置密码/ }));
+    const dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByLabelText('新密码'), 'abcd');
+    expect(await screen.findByText('密码强度：弱')).toBeInTheDocument();
+    await user.type(within(dialog).getByLabelText('新密码'), 'Strong-Pass1!');
+    expect(await screen.findByText('密码强度：强')).toBeInTheDocument();
+  }, 15_000);
+
+  it('两次密码不一致时阻止提交', async () => {
+    let resetCalls = 0;
+    api.defaults.adapter = ((config: InternalAxiosRequestConfig) => {
+      if (isReset(config)) {
+        resetCalls += 1;
+        return Promise.resolve(ok(config, DETAIL));
+      }
+      if (isStats(config)) return Promise.resolve(ok(config, STATS));
+      return Promise.resolve(ok(config, DETAIL));
+    }) as AxiosAdapter;
+
+    renderPage();
+    await screen.findByRole('heading', { name: 'alice' });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /重置密码/ }));
+    const dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByLabelText('新密码'), 'StrongPass1!');
+    await user.type(within(dialog).getByLabelText('确认新密码'), 'StrongPass2!');
+    await user.click(within(dialog).getByRole('button', { name: /确认重置/ }));
+
+    expect(await screen.findByText('两次输入的密码不一致')).toBeInTheDocument();
+    expect(resetCalls).toBe(0);
+  }, 15_000);
+
+  it('撤销全部会话经二次确认后提示成功', async () => {
+    let revokeCalls = 0;
+    api.defaults.adapter = ((config: InternalAxiosRequestConfig) => {
+      if (isRevoke(config)) {
+        revokeCalls += 1;
+        return Promise.resolve(ok(config, DETAIL));
+      }
+      if (isStats(config)) return Promise.resolve(ok(config, STATS));
+      return Promise.resolve(ok(config, DETAIL));
+    }) as AxiosAdapter;
+
+    renderPage();
+    await screen.findByRole('heading', { name: 'alice' });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /撤销全部会话/ }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: /撤\s*销/ }));
+
+    expect(await screen.findByText('已撤销该用户的全部登录会话')).toBeInTheDocument();
+    expect(revokeCalls).toBe(1);
   }, 15_000);
 });

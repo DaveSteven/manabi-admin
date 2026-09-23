@@ -80,6 +80,10 @@ button, input { font: inherit; }
 .user-detail-card .ant-card-head { border-bottom: 1px solid t.$border; }
 .user-detail-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: t.$space-4; margin-bottom: t.$space-5; padding: t.$space-4 t.$space-5; background: t.$surface-muted; border-radius: t.$radius-lg; }
 .user-detail-levels .ant-table { border-radius: t.$radius-lg; }
+.user-detail-strength { margin: -12px 0 t.$space-4; font-size: 12px; font-weight: 650; }
+.user-detail-strength--error { color: t.$error; }
+.user-detail-strength--warning { color: t.$warning-fg; }
+.user-detail-strength--success { color: t.$success; }
 
 @media (max-width: 980px) {
   .login-page { grid-template-columns: 1fr; }

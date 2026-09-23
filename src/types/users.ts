@@ -30,6 +30,10 @@ export interface AdminUserDisableInput {
   reason?: string;
 }
 
+export interface AdminPasswordResetInput {
+  password: string;
+}
+
 export interface AdminUserStatsLevel {
   level: string;
   practices: number;
