@@ -3,6 +3,7 @@ import type { AdminUser } from '../types/auth';
 import type {
   AdminUserCreateInput,
   AdminUserDetail,
+  AdminUserDisableInput,
   AdminUserListParams,
   AdminUserStats,
   AdminUserUpdateInput,
@@ -18,6 +19,10 @@ export const usersService = {
     (await api.get<AdminUserDetail>(`/admin/users/${encodeURIComponent(id)}`)).data,
   update: async (id: string, input: AdminUserUpdateInput) =>
     (await api.patch<AdminUserDetail>(`/admin/users/${encodeURIComponent(id)}`, input)).data,
+  disable: async (id: string, input: AdminUserDisableInput = {}) =>
+    (await api.post<AdminUserDetail>(`/admin/users/${encodeURIComponent(id)}/disable`, input)).data,
+  enable: async (id: string) =>
+    (await api.post<AdminUserDetail>(`/admin/users/${encodeURIComponent(id)}/enable`)).data,
   stats: async (id: string) =>
     (await api.get<AdminUserStats>(`/admin/users/${encodeURIComponent(id)}/stats`)).data,
 };

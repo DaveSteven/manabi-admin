@@ -26,6 +26,10 @@ export interface AdminUserUpdateInput {
   updated_at: string;
 }
 
+export interface AdminUserDisableInput {
+  reason?: string;
+}
+
 export interface AdminUserStatsLevel {
   level: string;
   practices: number;

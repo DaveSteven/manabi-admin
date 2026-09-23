@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { AxiosAdapter, InternalAxiosRequestConfig } from 'axios';
 import { UserDetailPage } from './UserDetailPage';
+import { ConfirmProvider } from '../providers/ConfirmProvider';
 import { api } from '../lib/api';
 import type { AdminUserDetail, AdminUserStats } from '../types/users';
 
@@ -48,16 +49,26 @@ function isPatch(config: InternalAxiosRequestConfig) {
   return (config.method ?? 'get').toLowerCase() === 'patch';
 }
 
+function isDisable(config: InternalAxiosRequestConfig) {
+  return (config.url ?? '').endsWith('/disable');
+}
+
+function isEnable(config: InternalAxiosRequestConfig) {
+  return (config.url ?? '').endsWith('/enable');
+}
+
 function renderPage(path = '/users/u1') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <ConfigProvider>
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={[path]}>
-          <Routes>
-            <Route path="/users/:userId" element={<UserDetailPage />} />
-          </Routes>
-        </MemoryRouter>
+        <ConfirmProvider>
+          <MemoryRouter initialEntries={[path]}>
+            <Routes>
+              <Route path="/users/:userId" element={<UserDetailPage />} />
+            </Routes>
+          </MemoryRouter>
+        </ConfirmProvider>
       </QueryClientProvider>
     </ConfigProvider>,
   );
@@ -224,5 +235,94 @@ describe('B06 编辑用户', () => {
     await user.click(within(dialog).getByRole('button', { name: /保\s*存/ }));
 
     expect(await screen.findByText('没有需要保存的修改。')).toBeInTheDocument();
+  }, 15_000);
+});
+
+describe('B07 禁用与启用', () => {
+  it('禁用用户需填写原因，成功后刷新状态', async () => {
+    const posts: Array<Record<string, unknown>> = [];
+    api.defaults.adapter = ((config: InternalAxiosRequestConfig) => {
+      if (isDisable(config)) {
+        posts.push(JSON.parse(String(config.data)) as Record<string, unknown>);
+        return Promise.resolve(ok(config, { ...DETAIL, status: 'disabled', updated_at: '2026-02-05T00:00:00Z' }));
+      }
+      if (isStats(config)) return Promise.resolve(ok(config, STATS));
+      return Promise.resolve(ok(config, DETAIL));
+    }) as AxiosAdapter;
+
+    renderPage();
+    await screen.findByRole('heading', { name: 'alice' });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /禁用用户/ }));
+    const dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByLabelText('禁用原因'), '违反使用条款');
+    await user.click(within(dialog).getByRole('button', { name: /确认禁用/ }));
+
+    expect(await screen.findByText('用户已禁用')).toBeInTheDocument();
+    expect(await screen.findByText('已禁用')).toBeInTheDocument();
+    expect(posts[0]).toEqual({ reason: '违反使用条款' });
+  }, 15_000);
+
+  it('启用用户经二次确认后恢复为正常', async () => {
+    api.defaults.adapter = ((config: InternalAxiosRequestConfig) => {
+      if (isEnable(config)) return Promise.resolve(ok(config, { ...DETAIL, status: 'active' }));
+      if (isStats(config)) return Promise.resolve(ok(config, STATS));
+      return Promise.resolve(ok(config, { ...DETAIL, status: 'disabled' }));
+    }) as AxiosAdapter;
+
+    renderPage();
+    await screen.findByRole('heading', { name: 'alice' });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /启用用户/ }));
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: /启\s*用/ }));
+
+    expect(await screen.findByText('用户已启用')).toBeInTheDocument();
+    expect(await screen.findByText('正常')).toBeInTheDocument();
+  }, 15_000);
+
+  it('禁用自己时显示服务端中文提示', async () => {
+    api.defaults.adapter = ((config: InternalAxiosRequestConfig) => {
+      if (isDisable(config)) {
+        return Promise.reject({ isAxiosError: true, config, response: { status: 409, data: { detail: { code: 'CANNOT_DISABLE_SELF', message: 'Cannot disable your own account' } } } });
+      }
+      if (isStats(config)) return Promise.resolve(ok(config, STATS));
+      return Promise.resolve(ok(config, DETAIL));
+    }) as AxiosAdapter;
+
+    renderPage();
+    await screen.findByRole('heading', { name: 'alice' });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /禁用用户/ }));
+    const dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByLabelText('禁用原因'), '测试');
+    await user.click(within(dialog).getByRole('button', { name: /确认禁用/ }));
+
+    expect(await screen.findByText('不能禁用当前登录账号。')).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  }, 15_000);
+
+  it('保护最后一个管理员时显示中文提示', async () => {
+    api.defaults.adapter = ((config: InternalAxiosRequestConfig) => {
+      if (isDisable(config)) {
+        return Promise.reject({ isAxiosError: true, config, response: { status: 409, data: { detail: { code: 'LAST_ADMIN_PROTECTED', message: 'Cannot disable the last active administrator' } } } });
+      }
+      if (isStats(config)) return Promise.resolve(ok(config, STATS));
+      return Promise.resolve(ok(config, DETAIL));
+    }) as AxiosAdapter;
+
+    renderPage();
+    await screen.findByRole('heading', { name: 'alice' });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /禁用用户/ }));
+    const dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByLabelText('禁用原因'), '测试');
+    await user.click(within(dialog).getByRole('button', { name: /确认禁用/ }));
+
+    expect(await screen.findByText('不能禁用最后一个管理员。')).toBeInTheDocument();
   }, 15_000);
 });

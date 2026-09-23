@@ -1,4 +1,4 @@
-import { ArrowLeftOutlined, EditOutlined, ReloadOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, CheckCircleOutlined, EditOutlined, ReloadOutlined, StopOutlined } from '@ant-design/icons';
 import { Alert, Card, Descriptions, Form, Input, Modal, Space, Statistic, Table, Button, type TableProps } from 'antd';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -6,13 +6,18 @@ import { useState } from 'react';
 import { PageHeader } from '../components/PageHeader';
 import { StateBlock } from '../components/feedback/StateBlock';
 import { StatusTag } from '../components/common/StatusTag';
+import { useConfirm } from '../providers/ConfirmProvider';
 import { apiErrorCode, apiErrorStatus, apiErrorMessage } from '../lib/errors';
 import { usersService } from '../services/users';
-import type { AdminUserStatsLevel, AdminUserUpdateInput } from '../types/users';
+import type { AdminUserDetail, AdminUserStatsLevel, AdminUserUpdateInput } from '../types/users';
 
 interface EditFormValues {
   username: string;
   display_name?: string;
+}
+
+interface DisableFormValues {
+  reason: string;
 }
 
 function formatDateTime(value: string | null): string {
@@ -25,15 +30,29 @@ function formatAccuracy(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
+function adminActionMessage(error: unknown): string {
+  const code = apiErrorCode(error);
+  if (code === 'CANNOT_DISABLE_SELF') return '不能禁用当前登录账号。';
+  if (code === 'LAST_ADMIN_PROTECTED') return '不能禁用最后一个管理员。';
+  if (code === 'USER_DELETED') return '该用户已删除，无法执行该操作。';
+  return apiErrorMessage(error);
+}
+
 export function UserDetailPage() {
   const { userId } = useParams<{ userId: string }>();
   const navigate = useNavigate();
+  const confirm = useConfirm();
   const queryClient = useQueryClient();
   const [editOpen, setEditOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState<string>();
-  const [saved, setSaved] = useState(false);
+  const [disableOpen, setDisableOpen] = useState(false);
+  const [disabling, setDisabling] = useState(false);
+  const [disableError, setDisableError] = useState<string>();
+  const [actionError, setActionError] = useState<string>();
+  const [notice, setNotice] = useState<string>();
   const [editForm] = Form.useForm<EditFormValues>();
+  const [disableForm] = Form.useForm<DisableFormValues>();
 
   const detailQuery = useQuery({
     queryKey: ['admin', 'users', userId],
@@ -48,6 +67,14 @@ export function UserDetailPage() {
 
   const detail = detailQuery.data;
   const stats = statsQuery.data;
+
+  const applyUpdated = (updated: AdminUserDetail) => {
+    queryClient.setQueryData(['admin', 'users', userId], updated);
+    void queryClient.invalidateQueries({
+      queryKey: ['admin', 'users'],
+      predicate: (query) => query.queryKey.length === 3 && typeof query.queryKey[2] === 'object',
+    });
+  };
 
   const openEdit = () => {
     if (!detail) return;
@@ -83,13 +110,9 @@ export function UserDetailPage() {
     setEditError(undefined);
     try {
       const updated = await usersService.update(userId, payload);
-      queryClient.setQueryData(['admin', 'users', userId], updated);
-      void queryClient.invalidateQueries({
-        queryKey: ['admin', 'users'],
-        predicate: (query) => query.queryKey.length === 3 && typeof query.queryKey[2] === 'object',
-      });
+      applyUpdated(updated);
       setEditOpen(false);
-      setSaved(true);
+      setNotice('用户资料已更新');
     } catch (error) {
       const code = apiErrorCode(error);
       if (code === 'EDIT_CONFLICT') setEditError('该用户资料已被其他管理员修改，请刷新后重试。');
@@ -97,6 +120,58 @@ export function UserDetailPage() {
       else setEditError(apiErrorMessage(error));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const openDisable = () => {
+    setDisableError(undefined);
+    disableForm.resetFields();
+    setDisableOpen(true);
+  };
+
+  const closeDisable = () => {
+    if (disabling) return;
+    setDisableOpen(false);
+    setDisableError(undefined);
+  };
+
+  const submitDisable = async () => {
+    if (disabling || !userId) return;
+    let values: DisableFormValues;
+    try {
+      values = await disableForm.validateFields();
+    } catch {
+      return;
+    }
+    setDisabling(true);
+    setDisableError(undefined);
+    try {
+      const updated = await usersService.disable(userId, { reason: values.reason.trim() });
+      applyUpdated(updated);
+      setDisableOpen(false);
+      setNotice('用户已禁用');
+    } catch (error) {
+      setDisableError(adminActionMessage(error));
+    } finally {
+      setDisabling(false);
+    }
+  };
+
+  const enableUser = async () => {
+    if (!detail || !userId) return;
+    const ok = await confirm({
+      title: '启用用户',
+      content: `确定要启用「${detail.username ?? detail.id}」吗？该用户可以重新登录。`,
+      okText: '启用',
+    });
+    if (!ok) return;
+    setActionError(undefined);
+    try {
+      const updated = await usersService.enable(userId);
+      applyUpdated(updated);
+      setNotice('用户已启用');
+    } catch (error) {
+      setActionError(adminActionMessage(error));
     }
   };
 
@@ -131,8 +206,14 @@ export function UserDetailPage() {
         title={detail?.username ?? '用户详情'}
         description={detail?.display_name ? `显示名称：${detail.display_name}` : undefined}
         action={(
-          <Space>
-            <Button type="primary" icon={<EditOutlined />} disabled={!detail} onClick={openEdit}>编辑资料</Button>
+          <Space wrap>
+            <Button type="primary" icon={<EditOutlined />} disabled={!detail || detail.status === 'deleted'} onClick={openEdit}>编辑资料</Button>
+            {detail?.status === 'active' && (
+              <Button danger icon={<StopOutlined />} onClick={openDisable}>禁用用户</Button>
+            )}
+            {detail?.status === 'disabled' && (
+              <Button icon={<CheckCircleOutlined />} onClick={() => void enableUser()}>启用用户</Button>
+            )}
             <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/users')}>返回列表</Button>
             <Button
               icon={<ReloadOutlined />}
@@ -145,14 +226,24 @@ export function UserDetailPage() {
         )}
       />
 
-      {saved && (
+      {notice && (
         <Alert
           className="users-page__notice"
           type="success"
           showIcon
           closable
-          message="用户资料已更新"
-          onClose={() => setSaved(false)}
+          message={notice}
+          onClose={() => setNotice(undefined)}
+        />
+      )}
+      {actionError && (
+        <Alert
+          className="users-page__notice"
+          type="error"
+          showIcon
+          closable
+          message={actionError}
+          onClose={() => setActionError(undefined)}
         />
       )}
 
@@ -233,6 +324,33 @@ export function UserDetailPage() {
             <Input autoComplete="off" placeholder="留空表示清除显示名称" />
           </Form.Item>
           <p className="users-create-form__hint">用户名和显示名称可修改；等级、状态和权限不在后台编辑。</p>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="禁用用户"
+        open={disableOpen}
+        okText="确认禁用"
+        okButtonProps={{ danger: true }}
+        cancelText="取消"
+        confirmLoading={disabling}
+        maskClosable={!disabling}
+        onOk={() => void submitDisable()}
+        onCancel={closeDisable}
+      >
+        {disableError && <Alert className="users-page__notice" type="error" showIcon message={disableError} />}
+        <p className="users-create-form__hint">禁用后该用户将无法登录，且其全部登录会话会被立即撤销。</p>
+        <Form form={disableForm} layout="vertical" requiredMark={false}>
+          <Form.Item
+            label="禁用原因"
+            name="reason"
+            rules={[
+              { required: true, message: '请输入禁用原因' },
+              { max: 500, message: '禁用原因最多 500 个字符' },
+            ]}
+          >
+            <Input.TextArea rows={3} maxLength={500} placeholder="请说明禁用原因（用于后续审计）" />
+          </Form.Item>
         </Form>
       </Modal>
     </div>
