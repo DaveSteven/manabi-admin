@@ -7,6 +7,7 @@ import { LoginPage } from './pages/LoginPage';
 import { ModulePlaceholderPage } from './pages/ModulePlaceholderPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { UsersPage } from './pages/UsersPage';
+import { UserDetailPage } from './pages/UserDetailPage';
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
         <Route element={<AdminLayout />}>
           <Route index element={<DashboardPage />} />
           <Route path="users" element={<UsersPage />} />
+          <Route path="users/:userId" element={<UserDetailPage />} />
           <Route path="exams" element={<ModulePlaceholderPage eyebrow="JLPT LIBRARY" title="真题管理" description="维护 N1–N5 试卷、题组和题目内容。" icon={<BookOutlined />} phase="阶段 3–5" />} />
           <Route path="reviews" element={<ModulePlaceholderPage eyebrow="QUALITY" title="内容审核" description="处理质量问题、内容修订与发布审核。" icon={<FileSearchOutlined />} phase="阶段 6" />} />
           <Route path="assets" element={<ModulePlaceholderPage eyebrow="MEDIA" title="媒体资源" description="统一查看图片、音频及字幕资源。" icon={<PictureOutlined />} phase="阶段 5" />} />

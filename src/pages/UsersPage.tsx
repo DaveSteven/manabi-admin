@@ -3,7 +3,7 @@ import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-quer
 import { Alert, Button, Form, Input, Modal, Select, Space, Table, type TableProps } from 'antd';
 import type { SorterResult, TablePaginationConfig } from 'antd/es/table/interface';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { StateBlock } from '../components/feedback/StateBlock';
 import { StatusTag } from '../components/common/StatusTag';
@@ -152,7 +152,7 @@ export function UsersPage() {
   );
 
   const columns: TableProps<AdminUserListItem>['columns'] = [
-    { title: '用户名', dataIndex: 'username', key: 'username', sorter: true, sortOrder: sortOrderFor('username'), render: (value: string | null) => value ?? '—' },
+    { title: '用户名', dataIndex: 'username', key: 'username', sorter: true, sortOrder: sortOrderFor('username'), render: (value: string | null, record) => <Link to={`/users/${record.id}`}>{value ?? '—'}</Link> },
     { title: '显示名称', dataIndex: 'display_name', key: 'display_name', render: (value: string | null) => value || '—' },
     { title: '等级', dataIndex: 'level', key: 'level', sorter: true, sortOrder: sortOrderFor('level') },
     { title: '状态', dataIndex: 'status', key: 'status', sorter: true, sortOrder: sortOrderFor('status'), render: (value: string) => <StatusTag status={value} /> },

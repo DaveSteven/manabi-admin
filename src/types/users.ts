@@ -16,6 +16,26 @@ export interface AdminUsersResponse {
   offset: number;
 }
 
+export type AdminUserDetail = AdminUserListItem;
+
+export interface AdminUserStatsLevel {
+  level: string;
+  practices: number;
+  answered: number;
+  correct: number;
+  accuracy: number;
+  wrong_questions: number;
+}
+
+export interface AdminUserStats {
+  practices: number;
+  answered: number;
+  correct: number;
+  accuracy: number;
+  wrong_questions: number;
+  levels: AdminUserStatsLevel[];
+}
+
 export interface AdminUserCreateInput {
   username: string;
   display_name?: string;
