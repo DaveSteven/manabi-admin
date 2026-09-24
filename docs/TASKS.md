@@ -1505,11 +1505,43 @@ GET /api/v1/admin/exams
 
 ## C02：试卷概览垂直切片
 
-**状态：待验收**
+**状态：验收通过**
 
-### Review
+### Review 1
 
-尚未验收，无 Review 结论。
+- Date: 2026-09-25
+- 验收对象：C02 试卷概览后端接口、列表入口、前端概览页及相关测试。
+- Revision: 前端 `4fb3a7702550896e49568135a75efd906946384b`、后端 `a17919a35d0169fcb4ace17a627fd0884cae2d14` 加各自当前未提交 C02 工作区；结论仅适用于本轮检查的工作区，不代表 HEAD 已包含实现。
+- Result: **验收通过**。
+
+Validation:
+
+- 后端定向测试 `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. ./.venv/bin/pytest -q -p no:cacheprovider tests/test_admin_exam_overview.py`：PASS，6 passed。
+- 后端完整回归：PASS，101 passed、4 skipped；跳过项为未配置 PostgreSQL 的并发集成测试，不计为通过。
+- 前端 `npm test`：PASS，15 个文件、106 项测试通过。
+- 前端 `npm run build`、`npm run lint`：PASS；构建仍有约 1,270.45 kB 主 JS 包体积警告，测试仍有既有 jsdom 伪元素提示，均非本轮阻断项。
+- 前后端 `git diff --check`：PASS；工作区 OpenAPI 正常生成，概览 GET 的 200 响应引用 `AdminExamOverviewOut`。
+- 接口权限测试覆盖未认证 401、普通用户 403；不存在试卷返回 404。
+- 独立检查统计查询与测试数据：当前题数排除 retired，可用题数仅计 ready，待复核仅计 review；内容状态保留 ready/review/hidden/retired 全量分布；分类和题型统计排除 retired，并分别汇总当前题数、可用数和待复核数。
+- 质量问题统计只计未退役 occurrence 且 `QualityIssue.import_id == Occurrence.import_id` 的当前批次记录；测试覆盖 error/warning/info、旧批次排除和 retired 排除。
+- 前端组件测试覆盖基础信息及四类统计展示、404 空状态与返回列表、服务端错误重试；C01 列表测试确认标题链接指向 `/exams/{exam_id}`。
+
+Findings:
+
+- 本轮未发现阻断 C02 验收的问题。
+- 实现保持只读，没有数据库迁移、依赖变更、iOS API 改动或 C03/C07 范围扩展。
+
+Not Verified:
+
+- 本轮本机 API 端口未运行，因此未使用真实管理员会话验证部署中的概览请求，也未执行真实浏览器端列表到概览的联调。
+- 未验证 PostgreSQL 查询计划、大数据量性能、Safari/Firefox、真实移动设备或完整无障碍表现。
+- 前端统计展示使用 Axios adapter，后端统计使用 TestClient 与隔离 SQLite 数据库；这些证据不代表部署环境已加载 C02。
+
+Next:
+
+- C02 无需返工，可进入 C03；后续任务仍需独立验收。
+- 提交时须包含新增的 `ExamOverviewPage.tsx`、对应测试及后端 `tests/test_admin_exam_overview.py`；当前这些文件仍未跟踪，遗漏会使提交不完整。
+- 真实管理员 API 与浏览器列表跳转联调保留为后续集成验证事项。
 
 ### 后端
 
