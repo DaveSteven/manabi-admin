@@ -3,6 +3,7 @@ import { Route, Routes } from 'react-router-dom';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AdminLayout } from './layout/AdminLayout';
 import { DashboardPage } from './pages/DashboardPage';
+import { ExamOverviewPage } from './pages/ExamOverviewPage';
 import { ExamsPage } from './pages/ExamsPage';
 import { LoginPage } from './pages/LoginPage';
 import { ModulePlaceholderPage } from './pages/ModulePlaceholderPage';
@@ -20,6 +21,7 @@ export default function App() {
           <Route path="users" element={<UsersPage />} />
           <Route path="users/:userId" element={<UserDetailPage />} />
           <Route path="exams" element={<ExamsPage />} />
+          <Route path="exams/:examId" element={<ExamOverviewPage />} />
           <Route path="reviews" element={<ModulePlaceholderPage eyebrow="QUALITY" title="内容审核" description="处理质量问题、内容修订与发布审核。" icon={<FileSearchOutlined />} phase="阶段 6" />} />
           <Route path="assets" element={<ModulePlaceholderPage eyebrow="MEDIA" title="媒体资源" description="统一查看图片、音频及字幕资源。" icon={<PictureOutlined />} phase="阶段 5" />} />
           <Route path="audit-logs" element={<ModulePlaceholderPage eyebrow="HISTORY" title="操作记录" description="追踪管理员对账号和内容的关键操作。" icon={<AuditOutlined />} phase="阶段 4" />} />

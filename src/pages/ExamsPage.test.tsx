@@ -74,6 +74,7 @@ describe('C01 试卷列表', () => {
     renderPage();
 
     expect(await screen.findByText('2025年7月 N2')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '2025年7月 N2' })).toHaveAttribute('href', '/exams/e1');
     expect(screen.getByText('2024年12月 N3')).toBeInTheDocument();
     expect(screen.getByText('2025 年 7 月')).toBeInTheDocument();
     expect(screen.getAllByText('N2').length).toBeGreaterThan(0);

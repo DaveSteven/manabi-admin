@@ -3,7 +3,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Button, Input, Select, Space, Table, type TableProps } from 'antd';
 import type { SorterResult, TablePaginationConfig } from 'antd/es/table/interface';
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../components/PageHeader';
 import { StateBlock } from '../components/feedback/StateBlock';
 import { StatusTag } from '../components/common/StatusTag';
@@ -104,7 +104,11 @@ export function ExamsPage() {
   );
 
   const columns: TableProps<AdminExamListItem>['columns'] = [
-    { title: '试卷标题', dataIndex: 'title', key: 'title', sorter: true, sortDirections: SORT_DIRECTIONS, sortOrder: sortOrderFor('title') },
+    {
+      title: '试卷标题', dataIndex: 'title', key: 'title',
+      sorter: true, sortDirections: SORT_DIRECTIONS, sortOrder: sortOrderFor('title'),
+      render: (value: string, record) => <Link to={`/exams/${record.id}`}>{value}</Link>,
+    },
     { title: '等级', dataIndex: 'level', key: 'level', sorter: true, sortDirections: SORT_DIRECTIONS, sortOrder: sortOrderFor('level') },
     {
       title: '年月', dataIndex: 'year', key: 'year', sorter: true, sortDirections: SORT_DIRECTIONS, sortOrder: sortOrderFor('year'),
