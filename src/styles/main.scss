@@ -70,11 +70,11 @@ button, input { font: inherit; }
 .users-page__notice { margin-bottom: t.$space-5; }
 .users-create-form { margin-top: t.$space-4; }
 .users-create-form__hint { margin: -4px 0 t.$space-5; color: t.$ink-600; font-size: 12px; }
-.users-filter-card { display: flex; flex-wrap: wrap; align-items: center; gap: t.$space-3; margin-bottom: t.$space-5; padding: t.$space-4 t.$space-5; background: t.$surface; border: 1px solid t.$border; border-radius: t.$radius-lg; box-shadow: t.$shadow-card-soft; }
-.users-filter-card__keyword { width: 280px; }
-.users-filter-card__select { min-width: 132px; }
-.users-table { background: t.$surface; border: 1px solid t.$border; border-radius: t.$radius-lg; box-shadow: t.$shadow-card-soft; }
-.users-table .ant-table { border-radius: t.$radius-lg; }
+.users-filter-card, .exams-filter-card { display: flex; flex-wrap: wrap; align-items: center; gap: t.$space-3; margin-bottom: t.$space-5; padding: t.$space-4 t.$space-5; background: t.$surface; border: 1px solid t.$border; border-radius: t.$radius-lg; box-shadow: t.$shadow-card-soft; }
+.users-filter-card__keyword, .exams-filter-card__keyword { width: 280px; }
+.users-filter-card__select, .exams-filter-card__select { min-width: 132px; }
+.users-table, .exams-table { background: t.$surface; border: 1px solid t.$border; border-radius: t.$radius-lg; box-shadow: t.$shadow-card-soft; }
+.users-table .ant-table, .exams-table .ant-table { border-radius: t.$radius-lg; }
 
 .user-detail-card { margin-bottom: t.$space-5; background: t.$surface; border: 1px solid t.$border; border-radius: t.$radius-lg; box-shadow: t.$shadow-card-soft; }
 .user-detail-card .ant-card-head { border-bottom: 1px solid t.$border; }
@@ -101,7 +101,7 @@ button, input { font: inherit; }
   .page-header { align-items: flex-start; flex-direction: column; }
   .hero-card { padding: t.$space-8 t.$space-7; }
   .hero-card__glyph { right: -25px; }
-  .users-filter-card__keyword { width: 100%; }
-  .users-filter-card__select { flex: 1; }
+  .users-filter-card__keyword, .exams-filter-card__keyword { width: 100%; }
+  .users-filter-card__select, .exams-filter-card__select { flex: 1; }
   .user-detail-stats { grid-template-columns: repeat(2, 1fr); }
 }
