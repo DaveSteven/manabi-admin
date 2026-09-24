@@ -1369,11 +1369,97 @@ DELETE /api/v1/admin/users/{user_id}
 
 ## C01：试卷列表垂直切片
 
-**状态：待验收**
+**状态：验收通过**
 
-### Review
+最新验收结论：Review 2 验收通过；Review 1 保留为历史记录。结论适用于本轮工作区，真实管理员浏览器联调及 PostgreSQL 验证范围见 Review 2。
 
-尚未验收，无 Review 结论。
+### Review 1
+
+- Date: 2026-09-24
+- 验收对象：C01 管理员试卷列表 API、索引 migration、`/exams` 页面及相关测试。
+- Revision: 前端 `80625c7`、后端 `720ab3c` 加各自当前未提交工作区（包括新增未跟踪文件）。结论仅适用于本次检查的工作区。
+- Result: **待修改**。两项 P2 功能问题已通过定向测试复现。
+
+Validation:
+
+- 前端 `npm test`：PASS，14 个文件、101 项测试通过。
+- `npm run build`、`npm run lint`：PASS；构建存在约 1,265.54 kB 主 JS 包体积警告，测试存在既有 jsdom 伪元素提示，均非本轮阻断项。
+- 后端 `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. ./.venv/bin/pytest -q -p no:cacheprovider`：PASS，92 passed、4 skipped。
+- 后端测试包含 SQLite 空库升级、既有数据升级与 downgrade；新增索引通过独立 migration 添加，没有修改历史 migration。
+- OpenAPI schema 生成成功，包含 `GET /api/v1/admin/exams`；前后端 `git diff --check` 均通过。
+- 已检查管理员依赖、排序白名单、LIKE 通配符转义、分页及按当前页聚合题数；retired 不计入题数，available_count 仅统计 ready；返回结构不包含来源原文或磁盘路径。
+- 临时后端复现：为 ready occurrence 添加当前 import_id 的 warning QualityIssue，`has_issues=true` 返回空列表，预期应包含该试卷，断言失败。
+- 临时前端复现：渲染真实 Ant Design Table 并点击“年月”表头，捕获 Axios adapter 请求参数；期望 year/asc，实际仍为 year/desc，断言失败。
+- 临时复现材料保存在 `/private/tmp/c01-review/`，日志为 `/private/tmp/c01-quality-repro.log`、`/private/tmp/c01-sort-repro.log`；前端临时测试已从工作区移除，未修改 Worker 实现。
+
+Findings:
+
+#### R1 / P2：质量问题筛选遗漏 ready 题目的真实质量警告
+
+- Location: `manabi_api/app/main.py` 的 `list_admin_exams`，`review_exists` 及 `has_issues` 分支（约 399–403 行）。
+- Trigger: 当前 occurrence 状态为 ready，但当前导入批次存在 `missing_explanation`、`invalid_subtitle_segments` 等 warning；现有导入器允许此状态组合。
+- Actual: 查询仅检查 `Occurrence.status == 'review'`，完全不查询 `QualityIssue`，导致有警告的试卷从“有质量问题”中漏掉，并被归入“无质量问题”。
+- Impact: C01 质量问题筛选结果不正确；题目可用状态不能替代质量问题是否存在。
+- Required Change / 口径裁决：质量问题筛选应基于当前未退役 occurrence 关联的当前批次 QualityIssue（关联 occurrence_id 且 issue.import_id 与 occurrence.import_id 一致），覆盖 error、warning、info；排除旧导入批次与 retired occurrence 的历史问题。保留 pending_review_count 的待复核题目计数语义，不将其直接改为问题条数。不扩展实现 C07 详情接口。
+- Revalidation: 覆盖 ready + 当前 warning/info、review + 当前 error、无问题、仅旧批次问题、仅退役题目问题；验证 has_issues=true/false、total 和分页一致，多条问题不能重复返回试卷。使用真实 QualityIssue 数据建测试，不能仅手动修改 status。
+
+#### R2 / P2：“年月”列点击排序不生效
+
+- Location: `src/pages/ExamsPage.tsx:109`、`:139`。
+- Trigger: 默认 year/desc 下点击“年月”表头切换升序。
+- Actual: 列只设置 key，没有 dataIndex；Ant Design 的 sorter.field 来自 dataIndex，而处理函数只读取 field，进入清除排序分支后又恢复默认 year/desc。定向交互测试已复现。
+- Impact: C01 前端排序操作不可用，无法通过表头切换年份顺序。
+- Required Change: 为年月列提供正确的排序字段，或安全地使用白名单校验后的 columnKey；保持其他列及 URL 恢复行为。补充真实表头点击测试，验证升序、降序以及分页后排序参数保持。
+
+Not Verified:
+
+- 未使用真实管理员账号对运行中的 API 和浏览器进行联调；前端 adapter 测试与后端 TestClient 不代表部署环境已加载新路由。
+- 未验证 PostgreSQL migration、真实数据库查询计划或大数据量性能；本轮数据库测试采用 SQLite，4 项跳过不计为通过。
+- 未进行浏览器视觉、响应式或跨浏览器验收。
+
+Next:
+
+- Worker 仅处理 C01 的 R1、R2，完成后提交复验，不修改本 Review 或自行设置验收通过。
+- Allowed Files: 后端 `app/main.py`、`tests/test_admin_exams.py`；如查询索引确有必要，可调整本任务尚未提交的新 migration、模型索引及迁移测试，不得修改已提交历史 migration。前端 `src/pages/ExamsPage.tsx`、`src/pages/ExamsPage.test.tsx`。
+- 不新增依赖、不改 iOS API、不扩展 C02/C07 或审计功能；保留已有工作区修改。
+- 复验前运行后端相关测试及完整回归、前端完整测试/build/lint，并报告实际结果与未验证范围；补充真实运行环境列表请求及筛选排序联调证据。
+
+### Review 2
+
+- Date: 2026-09-24
+- 验收对象：C01 Review 1 的 R1、R2 修复及关联回归。
+- Revision: 前端 `80625c722e9fd4df4e801a3290f69ac2c0fbcb83`、后端 `720ab3c644a91cf09dc5bbfddcd4e808778b8202` 加当前未提交工作区，包含 C01 未跟踪文件；不代表两个 HEAD 已包含实现。
+- Result: **验收通过**。
+
+Validation:
+
+- 前端 `npm test`：PASS，14 个文件、103 项测试通过；新增测试实际点击 Ant Design 年月表头，验证降序转升序、再次降序，并验证分页请求保留 year/asc。
+- `npm run build`、`npm run lint`：PASS；约 1,265.72 kB 主 JS 包体积警告及 jsdom 伪元素提示仍属非阻断项。
+- 后端 `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. ./.venv/bin/pytest -q -p no:cacheprovider`：PASS，95 passed、4 skipped；跳过项为未配置 PostgreSQL 的并发集成测试，不计为通过。
+- 后端质量筛选测试覆盖当前 warning/info/error、无问题、旧批次问题、retired 问题、多条问题不重复试卷、筛选后 total 与分页；pending_review_count 保持题目状态计数，ready 警告不会变成待复核题数。
+- 重跑 Review 1 原始后端定向复现 `/private/tmp/c01-review/test_review.py`：1 passed，ready + 当前 warning 的试卷现可被正确筛出。
+- SQLite 独立临时库实际执行 upgrade head、downgrade c3f1a7e29b04，并检查数据库索引：C01 三个索引均在升级后存在、回滚后移除，PASS；完整测试中的空库/既有数据迁移回归亦通过。
+- 工作区 OpenAPI 正常生成。实际读取 `http://127.0.0.1:8001/openapi.json`，运行中的服务存在管理端试卷 GET 路由，描述已包含“质量问题基于当前批次 QualityIssue 判断”。此检查只证明路由/schema 更新，不替代认证列表请求。
+- 前后端 `git diff --check`：PASS。
+
+Resolved:
+
+- Review 1 / R1 / P2：PASS。改用 QualityIssue 与 Occurrence 关联的 EXISTS，限制相同 import_id 且 occurrence 未退役；不再以 review 状态代替是否有质量问题。补充 occurrence_id/import_id 复合索引，其模型与本任务新 migration 一致。
+- Review 1 / R2 / P2：PASS。年月列设置 dataIndex=year，排序处理保留白名单并支持 columnKey，分页操作不会清除当前排序；真实组件交互测试通过。
+
+Findings:
+
+- 本轮未发现阻断 C01 代码验收的遗留问题。修复围绕两项 Review 要求及获准的查询索引展开，未新增依赖、修改历史 migration 或扩展 C02/C07。
+
+Not Verified:
+
+- 未使用真实管理员会话进行运行中 API 的列表/筛选/排序请求，也未完成浏览器端真实 API 联调、视觉及响应式检查；本轮前端交互使用 Axios adapter，后端使用 TestClient 与隔离 SQLite 数据库。
+- 未验证 PostgreSQL migration、真实库查询计划及大数据性能。索引存在与查询结构检查不代表生产性能实测。
+
+Next:
+
+- C01 两项返工完成，可进入 C02；后续任务仍需独立验收。
+- 提交时包含所有新增 C01 页面、类型、服务、测试及 migration。真实环境管理员列表与浏览器联调保留为集成验证事项，不得以本轮单元/组件测试宣称已完成。
 
 ### 后端
 
